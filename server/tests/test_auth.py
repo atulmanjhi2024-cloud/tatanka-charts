@@ -1,4 +1,6 @@
 """Login: off until a password is set; then /api and /ws need a signed-in device."""
+import time
+
 import pytest
 from starlette.websockets import WebSocketDisconnect
 
@@ -9,6 +11,11 @@ from test_app import client  # noqa: F401  the app on the sim feed
 def test_login(client):  # noqa: F811
     assert client.get("/api/health").status_code == 200
     first = client.get("/api/backups").json()
+    for _ in range(100):   # the start's first backup is written in the background: a slow machine is still at it
+        if first["files"]:
+            break
+        time.sleep(0.05)
+        first = client.get("/api/backups").json()
     assert first["download"] is False and client.get(f"/api/backups/{first['files'][0]['name']}").status_code == 403
     assert client.get("/api/auth").json() == {"enabled": False, "signed_in": True, "label": "", "session": ""}
     assert client.put("/api/auth/password", json={"new": "short"}).status_code == 400

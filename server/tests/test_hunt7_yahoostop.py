@@ -35,6 +35,21 @@ async def swallowed_stop(stop=None):
         await anyio.sleep(5)
 
 
+def _anyio_swallows() -> bool:
+    """Whether this anyio swallows the stop as above (before 4.16.0); a newer one raises it, so the request itself ends
+    the loop at once and it never reaches the error or answer counted below. Either way the loop ends at once."""
+    async def go():
+        try:
+            await swallowed_stop()
+        except asyncio.CancelledError:
+            return False
+        return True
+    return asyncio.run(go())
+
+
+SWALLOWS = _anyio_swallows()
+
+
 class Stopping(httpx.AsyncBaseTransport):
     """Its first request (or request `at`) is stopped as above, then refused (as a proxy refuses Yahoo: 403 to
     CONNECT), or answered (answer); the others are answered."""
@@ -135,7 +150,7 @@ def test_yahoo_ends_at_once(tmp_path, monkeypatch, refuse):
     y = YahooQuotes(SimpleNamespace(yahoo_poll_s=15, config_dir=tmp_path),
                     transport=Stopping(lambda req: httpx.Response(200, json=spark), refuse=refuse))
     assert ends_at_once(lambda: y.run(m))
-    assert y.stats["errors" if refuse else "ok"] == 1
+    assert not SWALLOWS or y.stats["errors" if refuse else "ok"] == 1
 
 
 def test_yahoo_one_symbol_at_a_time_ends_at_once(tmp_path, monkeypatch):
@@ -158,7 +173,7 @@ def test_alpaca_ends_at_once(tmp_path, monkeypatch):
     m.watch_keys = {"AAPL"}
     a = AlpacaQuotes(SimpleNamespace(alpaca_key_id="k", alpaca_secret="s", alpaca_feed="iex"), transport=Stopping())
     assert ends_at_once(lambda: a.run(m))
-    assert a.stats["errors"] == 1
+    assert not SWALLOWS or a.stats["errors"] == 1
 
 
 def test_fred_ends_at_once(tmp_path, monkeypatch):
@@ -166,7 +181,7 @@ def test_fred_ends_at_once(tmp_path, monkeypatch):
     m.watch_keys = {"FRED:DGS10"}
     f = FredQuotes()
     assert ends_at_once(lambda: f.run(m))   # its next round in 15 minutes
-    assert f.stats["errors"] == 1
+    assert not SWALLOWS or f.stats["errors"] == 1
 
 
 def test_coinbase_ends_at_once(tmp_path, monkeypatch):
@@ -230,7 +245,7 @@ def test_update_check_ends_at_once(tmp_path, monkeypatch):
     monkeypatch.setattr(updates, "FIRST_S", 0)
     m = market(tmp_path, monkeypatch, CHART_COMMIT="a" * 40)
     assert ends_at_once(m.updates.run)   # 6 hours to the next check
-    assert "GitHub did not answer" in m.updates.state["error"]
+    assert not SWALLOWS or "GitHub did not answer" in m.updates.state["error"]
 
 
 def test_daily_levels_link_ends_at_once(tmp_path, monkeypatch):
@@ -243,7 +258,7 @@ def test_watchdog_heartbeat_ends_at_once(tmp_path, monkeypatch):
     monkeypatch.setattr(mk, "WATCHDOG_S", 0.05)
     m = market(tmp_path, monkeypatch, CHART_HEARTBEAT_URL="https://hc-ping.com/x")
     assert ends_at_once(m._watchdog_loop)   # it pinged again and again
-    assert m.http._transport.calls == 1 and m.heartbeat_last[0] is False
+    assert m.http._transport.calls == 1 and (not SWALLOWS or m.heartbeat_last[0] is False)
 
 
 def test_a_feed_that_fails_in_the_stop_is_not_restarted(tmp_path, monkeypatch):

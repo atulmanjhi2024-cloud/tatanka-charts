@@ -38,7 +38,8 @@ def test_an_odd_host_still_needs_the_login(client, monkeypatch):  # noqa: F811
         assert client.get("/api/connections", headers=h).status_code in (401, 403), host
         assert client.get("/api/backups", headers=h).status_code in (401, 403), host
         assert client.put("/api/connections/discord", json=HOOK, headers={**h, "origin": "https://evil.example"}).status_code == 403, host
-    assert re.search(r"^starlette>=1\.1\.0\b", (ROOT / "server" / "requirements.txt").read_text(), re.M)   # checks the Host
+    pin = re.search(r"^starlette(?:==|>=)(\d+)\.(\d+)\.", (ROOT / "server" / "requirements.txt").read_text(), re.M)
+    assert pin and (int(pin[1]), int(pin[2])) >= (1, 1)   # 1.1.0 or newer: it checks the Host
 
 
 def test_a_path_prefix_still_needs_the_login(client):  # noqa: F811
