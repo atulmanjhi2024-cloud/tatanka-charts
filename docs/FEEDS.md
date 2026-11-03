@@ -39,9 +39,10 @@ In Connections, open **Futures feed**, press **+**, pick the feed. Then:
 4. Press **Test**, then **Add**.
 
 Its card then shows its state: green when connected (with the trades so far), yellow while connecting, red with the
-reason when it fails.
+reason when it fails. It stays on the list, on or off (untick **On** to stop it for a while: its futures go back to
+NinjaTrader), until **Remove from list**, which deletes its settings.
 
-### Interactive Brokers futures (untested)
+### Interactive Brokers futures
 
 Every trade of the chosen futures from IB Gateway or TWS (IBKR's tick-by-tick "Last" stream), on the front month
 IBKR picks, followed through rolls. Gaps fill from IBKR's 1-minute bars.
@@ -58,7 +59,8 @@ IBKR picks, followed through rolls. Gaps fill from IBKR's 1-minute bars.
    `Get-NetTCPConnection -LocalPort 7496 -State Established | Select-Object RemoteAddress` (PowerShell; 7496 is
    TWS's port, Gateway's 4001) or `ss -tn sport = :7496` (Linux), and add it under **Trusted IPs** (Create), with
    localhost only unticked. TWS keeps it across its daily restart.
-3. **Port**: Gateway 4001 (paper 4002), TWS 7496 (paper 7497).
+3. **Port**: Gateway 4001 (paper 4002), TWS 7496 (paper 7497). A new card starts with the host and port of the
+   Interactive Brokers quotes card when those are set (there, or `IBKR_HOST` and `IBKR_PORT` in `.env`).
 4. **Client ID**: any number no other API program uses. The IBKR quotes connection uses another one: 31 by default.
 5. **Data**: IBKR's live CME data subscription for those futures. Delayed data has no tick-by-tick.
 6. **Limits**: IBKR allows a few tick-by-tick streams at once, 3 on most accounts. Choose up to that many futures.
@@ -70,7 +72,7 @@ renamed once, with no "Contract roll" message, if IBKR is still on that contract
 future in its Futures field, at that start: if it is off then, its first report once turned on counts as a roll. A
 roll that happened meanwhile is reported as usual, and so is every later one.
 
-**Untested**: written and tested against a stand-in for IBKR's library, never yet run against a live Gateway.
+**Tested**: run against TWS 10.x with live CME data on RTY (Nov 2026).
 
 ### Databento (live, untested)
 
@@ -252,7 +254,7 @@ Or, built into the image: `CHART_EXTRA_PIP=databento mybroker` in `.env`, then `
 | Source | How | Notes |
 |---|---|---|
 | NinjaTrader (any of its connections: Rithmic, Tradovate, CQG, Kinetick) | built in, the add-on | the usual way for prop firm accounts |
-| Interactive Brokers | built-in plugin (untested) | live CME data subscription; 3 tick-by-tick streams on most accounts |
+| Interactive Brokers | built-in plugin | live CME data subscription; 3 tick-by-tick streams on most accounts |
 | Databento | built-in plugin (untested) | paid by use; live CME licence |
 | Tradovate | a plugin (not written yet) or your own program | API access is a paid add-on, and CME data over the API is billed separately; prop accounts often exclude it |
 | Rithmic | your own program, or through NinjaTrader | its API (R\|Protocol) needs Rithmic's approval and a conformance test |

@@ -56,5 +56,5 @@ page's files (`app.js?v=<version>`, cached for good), the service worker's cache
 | A direct Rithmic futures feed (use the NinjaTrader feed meanwhile, or your own program: FEEDS.md) | A Rithmic account, dev kit, test credentials |
 | IBKR as the main watchlist quote feed and chart source (`feeds/ibkr.py` written, never run against a Gateway or TWS; Yahoo covers meanwhile) | An IBKR account and TWS or IB Gateway |
 | Alpaca quotes and stock charts, Coinbase quotes, App notifications on a real iPhone/PC (written and tested offline against recorded answers and RFC 8291's example; never run against the live services from here) | Nothing: turn them on under Connections and check the dot and Test |
-| Interactive Brokers futures, Databento live and Finnhub plugins (written and tested against stand-ins for their client libraries; never run against IB Gateway, a live Databento key or a Finnhub key) | A first run with a Gateway (live CME data), a Databento key and a Finnhub key |
+| Databento live and Finnhub plugins (written and tested against stand-ins for their client libraries; never run against a live Databento key or a Finnhub key) | A first run with a Databento key and a Finnhub key |
 | Back-adjusting history across rolls (the live feed already rolls itself) | Open: keep unadjusted, or shift older bars by the roll spread |

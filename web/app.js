@@ -5586,11 +5586,13 @@ async function cnPoll() {
     cnDots();
   } catch { /* the next poll */ }
 }
-function cnHead(c) {   // the parts that change by themselves: state, status, On
+function cnHead(c) {   // the parts that change by themselves: state, status, On, its info line
   const card = $(`#cn-list .cn-card[data-id="${c.id}"]:not(.draft)`);   // a draft keeps what is being typed and ticked
   if (!card) return;
   card.querySelector('.cn-dot').className = `cn-dot ${c.state}`;
   card.querySelector('.cn-status').textContent = c.status;
+  const info = card.querySelector('.cn-info');
+  if (info) info.textContent = c.info || '';
   const on = card.querySelector('.cn-on input');
   const f = c.fields.find((x) => x.key === 'enabled');
   if (on && f && document.activeElement !== on) on.checked = !!f.value;
@@ -5671,7 +5673,7 @@ function cnCard(c, draft = false) {
   card.append(cnEl('p', { className: 'cn-about', textContent: c.about }));
   if (c.locked) card.append(cnEl('p', { className: 'cn-lock', textContent: c.locked }));
   if (c.locked && c.id === 'ninjatrader') card.append(cnEl('div', { className: 'cn-ft' }, cnEl('button', { type: 'button', textContent: 'Leave the simulator…', onclick: leaveSim })));
-  if (c.info) card.append(cnEl('p', { className: 'cn-about', textContent: c.info }));
+  if (c.info) card.append(cnEl('p', { className: 'cn-about cn-info', textContent: c.info }));
   if (c.addon) card.append(cnAddon(c.addon));
   const named = c.multi && (c.extra || c.name || cn.list.some((x) => x.type === c.type && x.extra));   // a name once there are two
   const fields = [...(named ? [{ key: 'name', type: 'text', label: 'Name', value: c.name || '',
@@ -5716,7 +5718,7 @@ function cnCard(c, draft = false) {
       const v = input.value.trim();
       if (f.type === 'secret') { if (v) out[k] = v; continue; }
       const val = f.type === 'int' ? Number(v) : f.type === 'choice' ? (typeof f.value === 'number' ? Number(v) : v) : v;
-      if ((draft && c.extra) || val !== f.value) out[k] = val;   // another one: all as shown, not the defaults
+      if (draft || val !== f.value) out[k] = val;   // a new one: all as shown (a plugin's may start from another card's)
     }
     if (draft && on) out.enabled = card.querySelector('.cn-on input').checked;
     return out;
@@ -5743,7 +5745,7 @@ function cnCard(c, draft = false) {
     cnSave(c.id, body);
   } }) : null;
   const cancel = draft ? cnEl('button', { type: 'button', textContent: 'Cancel', onclick: () => { card.remove(); cnDots(); } }) : null;
-  const remove = !draft && (c.extra || (!c.main && c.listed)) ? cnEl('button', { type: 'button', className: 'link cn-rm',
+  const remove = !draft && (c.extra || !c.main) ? cnEl('button', { type: 'button', className: 'link cn-rm',   // any shown that isn't a main one
     textContent: c.extra ? 'Delete' : 'Remove from list', onclick: () => cnRemove(c) }) : null;
   card.append(cnEl('div', { className: 'cn-ft' }, remove, msg, cancel, test, save));
   return card;

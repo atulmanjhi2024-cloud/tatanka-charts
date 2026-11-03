@@ -1664,7 +1664,8 @@ async def connections_add(body: dict):
 
 @app.delete("/api/connections/{cid}", status_code=204)
 async def connections_remove(cid: str):
-    """Off its list: another channel is deleted; one that isn't a main connection is cleared and turned off."""
+    """Off its list: another channel or a plugin's card is deleted; one that isn't a main connection is cleared and
+    turned off."""
     m = M()
     try:
         m.connections.remove(cid)

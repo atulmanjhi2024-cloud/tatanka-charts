@@ -17,7 +17,8 @@ shut (tap its name; it stays as you left it); folded, it shows what is on. The m
 the **+** on a list adds the others (ntfy, Heartbeat) and **more than one** Discord alert channel, Discord chart-post
 channel or ntfy topic, each with its own name. Every alert goes to every alert channel. With two or more chart-post
 channels, Post to Discord asks which (one menu item each). **Delete** removes an added channel; **Remove from list**
-clears and turns off one that isn't a main connection.
+clears and turns off one that isn't a main connection. A feed added with **+** stays on its list, on or off, until
+**Remove from list** deletes its settings.
 
 | Connection | What it gives | Account |
 |---|---|---|

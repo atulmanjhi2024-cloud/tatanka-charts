@@ -11,6 +11,7 @@ the others once they are in use or added with its +. Alert and chart-post channe
 (discord-2, ntfy-3, discord_charts-2): those extra ones live only here, with a name, never in .env."""
 import asyncio
 import logging
+import os
 import re
 import time
 from dataclasses import replace
@@ -37,6 +38,8 @@ KEY_RE = re.compile(r"^[A-Za-z0-9_\-.]{8,200}$")
 DISCORD_RE = re.compile(r"^https://(ptb\.|canary\.)?discord(app)?\.com/api/webhooks/\d+/[\w-]+$")
 EXTRA_RE = re.compile(r"^([a-z][a-z0-9_]{1,30})-([2-9]|1[0-2])$")   # another one of a kind (discord-2), up to 12
 NAME_RE = re.compile(r"^[^<>\x00-\x1f]{0,40}$")
+# a new card's field -> the IBKR quotes card's, when that one is set (here or in .env): TWS on 7496 there, 7496 here too
+START = {"ibkr_trades": {"host": "ibkr_host", "port": "ibkr_port"}}
 
 
 def _f(key, kind, label, note="", **kw) -> dict:
@@ -381,12 +384,12 @@ class Connections:
         return cid
 
     def remove(self, cid: str):
-        """Off the list: another channel is deleted; a connection that isn't a main one is cleared (none, whatever
-        .env says) and off. A main one stays: its fields and On do that."""
+        """Off the list: another channel, or a plugin's card (its values are only here), is deleted; a connection that
+        isn't a main one is cleared (none, whatever .env says) and off. A main one stays: its fields and On do that."""
         if not self.known(cid):
             raise LookupError(cid)
         d = BY_ID[type_of(cid)]
-        if cid != d["id"]:
+        if cid != d["id"] or d.get("plugin"):
             self.saved = {k: v for k, v in self.saved.items() if k != cid}
             self.store.set_setting(SETTING, self.saved)
             return
@@ -414,8 +417,8 @@ class Connections:
 
     # -- what the app shows ---------------------------------------------------------------------------------------
     def public(self, market) -> list[dict]:
-        """Every connection as the lists show it. listed: on its kind's list (a main one, one in use, another channel);
-        the others are what its + offers."""
+        """Every connection as the lists show it. listed: on its kind's list (a main one, one in use, another channel,
+        a plugin added with +, on or off, until Remove); the others are what its + offers."""
         s = market.s
         running = {f.name: f for f in market.feed_objs}
         out = []
@@ -429,7 +432,7 @@ class Connections:
                     if f["type"] == "secret":
                         row.update(set=bool(saved.get(k)), env=False, source="app" if saved.get(k) else "")
                     else:
-                        v = saved.get(k, False if k == "enabled" else f.get("default", ""))
+                        v = saved.get(k, False if k == "enabled" else self._start(cid, d, f, s))
                         row["value"] = v.replace(",", ", ") if f["type"] == "symbols" else v
                 elif k == "enabled":
                     row["value"] = self._enabled(d["id"], s)
@@ -446,7 +449,8 @@ class Connections:
                         title=name or (f"{d['title']} {cid.rsplit('-', 1)[1]}" if extra else d["title"]),
                         main=bool(d.get("main")), multi=d.get("multi") or "", extra=extra,
                         fields=fields, unavailable=bool(d.get("unavailable")), locked="", **self._status(cid, market, running))
-            item["listed"] = item["main"] or extra or (item["state"] != "off" and not item["unavailable"])
+            item["listed"] = item["main"] or extra or (item["state"] != "off" and not item["unavailable"]) or \
+                (bool(d.get("plugin")) and cid in self.saved)
             if d.get("login") and getattr(market, "auth", None) is not None:
                 item["login"] = {"enabled": market.auth.enabled, "pc_only": _pc_only(market)}   # the Turn off button says which
             if d.get("backup") and getattr(market, "backups", None) is not None:
@@ -477,6 +481,15 @@ class Connections:
                     item["locked"] = "This server runs the simulator (CHART_FEED=sim in .env); real and invented trades never mix."
             out.append(item)
         return out
+
+    def _start(self, cid: str, d: dict, f: dict, s):
+        """A plugin field's value on a card not saved yet: its default, or the IBKR quotes card's (START) when that one
+        is set, saved here or in .env (IBKR_HOST, IBKR_PORT)."""
+        key = START.get(d["id"], {}).get(f["key"])
+        if key and cid not in self.saved and ((self.saved.get("ibkr") or {}).get(key) is not None
+                                              or os.environ.get(key.upper(), "").strip()):
+            return getattr(s, key)
+        return f.get("default", "")
 
     @staticmethod
     def _enabled(cid: str, s) -> bool:
