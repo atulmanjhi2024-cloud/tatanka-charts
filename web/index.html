@@ -1,0 +1,576 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+  <title>Tatanka Charts</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#0a0e0f">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Tatanka">
+  <link rel="icon" href="icons/favicon-32.png" sizes="32x32">
+  <link rel="icon" href="icons/icon-192.png" sizes="192x192">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header id="top">
+    <a id="brand" title="Tatanka Trading"><img src="icons/mark.png" alt="Tatanka Trading" width="39" height="28"><span>TATANKA</span></a>
+    <button type="button" id="sym" class="sym-btn" aria-label="Symbol: search" title="Symbol search (or just type on the chart)">ES</button>
+    <div id="tf">
+      <button id="tf-btn" aria-haspopup="true" aria-expanded="false" title="Timeframe"></button>
+      <div id="favs" role="group" aria-label="Favorite timeframes"></div>
+      <div id="tf-menu" hidden>
+        <div id="tf-groups"></div>
+        <form id="tf-custom" autocomplete="off">
+          <span>Custom</span>
+          <input id="tf-n" type="number" min="1" max="100000" step="1" inputmode="numeric" placeholder="e.g. 7" aria-label="Bar size">
+          <select id="tf-unit" aria-label="Bar unit">
+            <option value="s">seconds</option><option value="m">minutes</option><option value="h">hours</option>
+            <option value="D">days</option><option value="W">weeks</option><option value="M">months</option>
+            <option value="t">ticks</option><option value="v">volume</option><option value="r">range</option><option value="k">Renko</option>
+          </select>
+          <button type="submit">Go</button>
+        </form>
+        <p class="tf-hint">★ adds it to the toolbar.</p>
+      </div>
+    </div>
+    <button id="rth-btn" class="chip" type="button" aria-label="Session hours">ETH</button>
+    <div id="quote"><span id="q-last">–</span> <span id="q-chg"><span class="abs"></span> <span class="pct"></span></span></div>
+    <div id="st">
+      <button id="st-btn" aria-haspopup="true" aria-expanded="false">Studies ▾</button>
+      <div id="st-menu" class="menu" hidden>
+        <input type="search" id="st-q" placeholder="Search indicators" aria-label="Search indicators" autocomplete="off" spellcheck="false">
+        <p id="st-ext" class="hint" hidden>Free-data chart: the Tatanka studies, VWAP and profiles need this app's own futures trades, so they show on the live futures charts.</p>
+        <div id="st-list"></div>
+        <div class="st-foot"><button type="button" class="link" id="st-tpl-btn" aria-expanded="false" title="Which studies and indicators are on, in what order: save this set, or apply a saved one"><span class="tpl-ico fx">fx</span> Indicator templates ▾</button>
+          <button type="button" class="link" data-ind="" title="Every setting of the Tatanka indicators, as in NinjaTrader's Indicators dialog">All Tatanka settings…</button>
+          <button type="button" class="link" id="st-cs" title="Background, grid, colors, ETH or RTH, bar style">Chart settings ⚙</button></div>
+        <div id="st-tpl" class="tpl-box" hidden>
+          <h5><span class="tpl-ico fx">fx</span> Indicator templates</h5>
+          <div class="tpl-row"><button type="button" class="tpl-use" id="st-nt" title="Exactly a NinjaTrader chart with the Tatanka indicators: AMT Toolkit, If/Then, Level Lines, Gap Analysis, HTF EMA, price line">NinjaTrader chart <small>(built in)</small></button></div>
+          <div id="st-tpl-list"></div>
+          <button type="button" id="st-tpl-save">Save these indicators as…</button>
+          <p class="hint">Which studies and indicators are on, and their order. The chart's look (colors, bars, scale) is a chart template: ⚙ Chart. Saved on the server: every device has them.</p>
+        </div>
+        <div id="st-panels" hidden>
+          <div class="stp" data-p="vwap">
+            <div class="row"><span class="dim">Bands</span>
+              <label class="chk"><input type="checkbox" data-st="b1"> 1σ</label>
+              <label class="chk"><input type="checkbox" data-st="b2"> 2σ</label>
+              <label class="chk"><input type="checkbox" data-st="b3"> 3σ</label></div>
+            <p class="hint">Session VWAP restarts at the <span data-ct="17:00">17:00 CT</span> open, RTH VWAP at the regular-hours open. The bands go with both.</p>
+          </div>
+          <div class="stp" data-p="avwap">
+            <div class="row"><button type="button" id="av-set">Set anchor</button><button type="button" id="av-clear">Clear</button></div>
+            <p id="av-info" class="hint"></p>
+          </div>
+          <div class="stp" data-p="prof">
+            <div class="row"><span class="grow"></span><button type="button" data-ind="prof">Settings…</button></div>
+            <p class="hint" id="prof-info"></p>
+          </div>
+          <div class="stp" data-p="aavp">
+            <div class="row"><span class="grow"></span><button type="button" data-ind="aavp">Settings…</button></div>
+            <p class="hint" id="aavp-info"></p>
+          </div>
+          <div class="stp" data-p="pvp">
+            <div class="row"><span class="grow"></span><button type="button" data-ind="pvp">Settings…</button></div>
+            <p class="hint" id="pvp-info"></p>
+          </div>
+          <div class="stp" data-p="right">
+            <div class="row seg" data-st="right"><span class="dim">Range</span><button type="button" data-v="visible">Visible bars</button><button type="button" data-v="c5">5 days</button><button type="button" data-v="c20">20 days</button></div>
+            <p class="hint">Against the price axis, facing left. Orange: POC. Blue: 70% value area.</p>
+          </div>
+          <div class="stp" data-p="fp">
+            <div class="row seg" data-st="fp"><span class="dim">Show</span><button type="button" data-v="bidask">Bid × Ask</button><button type="button" data-v="delta">Delta</button><button type="button" data-v="volume">Volume</button></div>
+            <div class="row"><label class="inline">Rows <select id="fp-rows" aria-label="Ticks per row"><option value="auto">auto</option><option>1</option><option>2</option><option>4</option><option>5</option><option>10</option></select> ticks</label>
+              <label class="inline">Imbalance <input type="number" id="fp-ratio" min="101" max="2000" step="50"> %</label>
+              <label class="chk"><input type="checkbox" id="fp-poc"> POC</label></div>
+            <p class="hint">Zoom in until bars are about 40px wide. From stored trades: backfilled history has none.</p>
+          </div>
+          <div class="stp" data-p="fills">
+            <div class="row"><select id="fills-acct" aria-label="Account"><option value="">All accounts</option></select></div>
+            <p class="hint">▲ bought, ▼ sold, each finished trade with its P&amp;L. Read-only; the Journal tab lists them.</p>
+          </div>
+          <div class="stp" data-p="big">
+            <div class="row"><label class="inline">At least <input type="number" id="big-min" min="1" max="100000" step="1" style="width:72px"> contracts <small>(this symbol)</small></label></div>
+            <p class="hint">Buys at the ask up color, sells at the bid down color, size by area. The Tape tab lists them.</p>
+          </div>
+          <div class="stp" data-p="econ"><p class="hint">With the Calendar tab's filters (impact, currency).</p></div>
+          <div class="stp" data-p="amt">
+            <div class="row"><label class="chk"><input type="checkbox" data-st="amtDash"> Dashboard</label><span class="grow"></span><button type="button" id="amt-set-open">Settings…</button></div>
+            <div class="row seg" id="amt-period"><span class="dim">Profile</span>
+              <button type="button" data-v="Session">Day</button><button type="button" data-v="Weekly">Week</button><button type="button" data-v="Monthly">Month</button><button type="button" data-v="Yearly">Year</button></div>
+            <label class="chk"><input type="checkbox" id="amt-alerts"> Alerts to your channels <small>(this symbol)</small></label>
+            <p class="hint" id="amt-info"></p><p class="hint" id="amt-set-count"></p>
+          </div>
+          <div class="stp" data-p="ifthen">
+            <div class="row"><label class="chk" title="On a phone the labels are cut to one line; this shows every word (or tap a label)"><input type="checkbox" id="if-full"> Full text</label><span class="grow"></span><button type="button" data-plan="pl-if">Block…</button><button type="button" data-ind="ifthen">Settings…</button></div>
+            <p class="hint" id="if-info"></p>
+          </div>
+          <div class="stp" data-p="lines">
+            <div class="row"><span class="grow"></span><button type="button" data-plan="pl-ll">Levels…</button><button type="button" data-ind="lines">Settings…</button></div>
+            <p class="hint" id="ll-info"></p>
+          </div>
+          <div class="stp" data-p="tpo">
+            <div class="row"><span class="grow"></span><button type="button" data-ind="tpo">Settings…</button></div>
+            <p class="hint" id="tpo-info"></p>
+          </div>
+          <div class="stp" data-p="gap">
+            <div class="row"><label class="chk"><input type="checkbox" id="gap-alerts"> Alerts <small>(this symbol)</small></label>
+              <label class="inline">History <input type="number" id="gap-days" min="1" max="180"> days</label><span class="grow"></span><button type="button" data-ind="gap">Settings…</button></div>
+            <p class="hint" id="gap-info"></p>
+          </div>
+          <div class="stp" data-p="hema">
+            <div class="row"><span class="grow"></span><button type="button" data-ind="hema">Settings…</button></div>
+            <p class="hint" id="hema-info"></p>
+          </div>
+          <div class="stp" data-p="dsma">
+            <div class="row"><span class="grow"></span><button type="button" data-ind="dsma">Settings…</button></div>
+            <p class="hint" id="dsma-info"></p>
+          </div>
+          <div class="stp" data-p="ind"><div class="ind-eds"></div>
+            <div class="row"><button type="button" class="ind-more">+ Add another</button></div>
+            <p class="hint">NinjaTrader 8 formulas. Panes below the chart resize by dragging their top edge.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <button id="draw-btn" class="chip" title="Drawing tools" aria-pressed="false" aria-label="Draw">✎<span class="lbl"> Draw</span></button>
+    <button id="replay-btn" class="chip" title="Bar replay: step through a past session" aria-pressed="false" aria-label="Replay">⏪<span class="lbl"> Replay</span></button>
+    <button id="place" class="chip" title="Tap the chart to place a price alert (desktop: Alt+click)">+ Alert</button>
+    <button id="cmp-btn" class="chip" title="Compare: other symbols (ES, RTY, AAPL, DXY…) as % lines over this chart" aria-label="Compare">⊕<span class="lbl"> Compare</span></button>
+    <div id="cs">
+      <button id="cs-btn" class="chip" title="Chart settings: colors, grid, session hours, bars, scale" aria-label="Chart settings" aria-haspopup="true" aria-expanded="false">⚙<span class="lbl"> Chart</span></button>
+      <div id="cs-menu" class="menu" hidden>
+        <h5>Bars</h5>
+        <div class="row seg" data-cs="style"><button type="button" data-v="candles">Candles</button><button type="button" data-v="hollow">Hollow</button><button type="button" data-v="bars">OHLC</button><button type="button" data-v="line">Line</button><button type="button" data-v="ha" title="Heikin Ashi: drawn from the real bars, studies use the real ones">Heikin Ashi</button></div>
+        <div class="row colors"><label>Up <input type="color" data-cs="up"></label><label>Down <input type="color" data-cs="down"></label>
+          <label>Doji <input type="color" data-cs="doji"></label></div>
+        <label class="chk"><input type="checkbox" data-cs="volume"> Volume</label>
+        <label class="chk" title="Off: no candles or bars on this chart (studies, drawings and volume stay). This chart only."><input type="checkbox" id="cs-bars"> Price bars <small>(this tab)</small></label>
+        <h5>Session</h5>
+        <div class="row seg" id="cs-rth"><button type="button" data-v="eth">ETH <small>all hours</small></button><button type="button" data-v="rth">RTH <small>regular hours</small></button></div>
+        <p class="hint">RTH: only the instrument's regular hours (ES/NQ <span data-ct="08:30-15:00">08:30-15:00 CT</span>), bars counted from the open. The <b>ETH</b> chip in the header switches it too.</p>
+        <h5>Look</h5>
+        <div class="row seg" id="cs-theme"><span class="dim">Theme</span><button type="button" data-t="nt">NinjaTrader</button><button type="button" data-t="black">Black</button><button type="button" data-t="navy">Navy</button></div>
+        <div class="row colors"><label>Background <input type="color" data-cs="bg"></label><label>Grid <input type="color" data-cs="gridColor"></label>
+          <label>Text <input type="color" data-cs="textColor"></label><label>Crosshair <input type="color" data-cs="xhairColor"></label></div>
+        <div class="row seg" data-cs="gridLines"><span class="dim">Grid</span><button type="button" data-v="off">Off</button><button type="button" data-v="both">Both</button><button type="button" data-v="horz">Horizontal</button><button type="button" data-v="vert">Vertical</button></div>
+        <div class="row"><label class="inline">Text size <input type="number" data-cs="fontSize" min="9" max="18" step="1"> px</label></div>
+        <label class="chk"><input type="checkbox" data-cs="watermark"> Symbol watermark <small>(big, faint, behind the bars)</small></label>
+        <h5>Price scale</h5>
+        <label class="chk"><input type="checkbox" data-cs="priceOnly"> Scale on price only <small>(studies never stretch it)</small></label>
+        <label class="chk"><input type="checkbox" data-cs="priceLine"> Last price line</label>
+        <div class="pl-opts">
+          <div class="row colors"><label class="chk"><input type="checkbox" data-cs="plAuto"> Bar color</label><label>or <input type="color" data-cs="plColor" aria-label="Last price line color"></label>
+            <label>Width <select data-cs="plWidth" aria-label="Last price line width"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label></div>
+          <div class="row seg" data-cs="plStyle"><span class="dim">Style</span><button type="button" data-v="solid">Solid</button><button type="button" data-v="dotted">Dotted</button><button type="button" data-v="dashed">Dashed</button><button type="button" data-v="large">Long dash</button></div>
+          <div class="row"><label class="inline">Opacity <input type="range" data-cs="plOpacity" min="10" max="100" step="5" aria-label="Last price line opacity"> <span id="pl-op"></span></label></div>
+        </div>
+        <label class="chk"><input type="checkbox" data-cs="countdown"> Bar close countdown</label>
+        <label class="chk" title="Open, high, low, close, change, range, volume and delta of the bar under the crosshair, under the legend"><input type="checkbox" data-cs="dataWin"> Data window</label>
+        <p class="hint">Corner buttons under the price axis: <b>A</b> auto-scale, <b>L</b> log, <b>🔒</b> lock price to bar ratio. Drag the axis to scale by hand; double-click it for auto again.</p>
+        <h5>Chart</h5>
+        <label class="chk"><input type="checkbox" data-cs="sessions"> Session breaks <small>(futures: <span data-ct="17:00">17:00 CT</span>; others at their exchange's day)</small></label>
+        <div class="row seg" data-cs="crosshair"><span class="dim">Crosshair</span><button type="button" data-v="normal">Free</button><button type="button" data-v="magnet">Magnet (OHLC)</button></div>
+        <div class="row"><label class="inline">Right margin <input type="number" data-cs="rightBars" min="0" max="200" step="1"> bars</label></div>
+        <p class="hint">Keys: ← → scroll, ↑ ↓ or + − zoom, Home/End, Alt+R reset view, Shift+drag measure. Type a timeframe or symbol (5, 1h, 2000t, NQ) and press Enter to switch.</p>
+        <div class="row"><button type="button" id="cs-reset">Reset chart settings</button></div>
+        <p class="hint credit">Charts by <a href="https://www.tradingview.com/" target="_blank" rel="noopener">TradingView</a> Lightweight Charts™ (Apache 2.0).</p>
+        <div id="cs-tpl" class="tpl-box" hidden>
+          <h5><span class="tpl-ico look">◑</span> Chart templates</h5>
+          <div id="cs-tpl-list"></div>
+          <button type="button" id="cs-tpl-save">Save these settings as…</button>
+          <p class="hint">The chart's look: bars, colors, grid, text, price line, scale and margin. Which studies are on is an indicator template (Studies ▾). Saved on the server: every device has them.</p>
+        </div>
+        <div class="cs-foot"><button type="button" class="link" id="cs-tpl-btn" aria-expanded="false" title="Save these chart settings under a name, or apply saved ones"><span class="tpl-ico look">◑</span> Chart templates ▾</button>
+          <button type="button" id="cs-all" title="These settings on every chart: each chart of every layout and workspace, and the tabs">Apply to all charts</button></div>
+      </div>
+    </div>
+    <div id="ws"><button id="ws-btn" class="chip" title="Workspaces and chart layout" aria-haspopup="true">▦ Workspace</button>
+      <div id="ws-menu" class="menu" hidden></div></div>
+    <button id="shot-btn" class="chip icon" title="Picture of the chart: save it, or post it to Discord" aria-label="Picture of the chart" aria-haspopup="menu">📷</button>
+    <button id="fs-btn" class="chip icon" title="Full screen (F11)" aria-label="Full screen">⛶</button>
+    <button type="button" id="conn-btn" title="Connections: data feeds, keys, alert channels" aria-label="Connections"><span id="conn" class="dot"></span></button>
+  </header>
+  <nav id="ctabs" aria-label="Chart tabs"><div id="ctabs-list" role="tablist"></div>
+    <button type="button" id="ctab-add" title="New tab: a copy of this one, then pick its symbol and timeframe" aria-label="New chart tab">+</button></nav>
+
+  <main>
+    <div id="grid" hidden></div>
+    <section id="chart-wrap">
+      <div id="chart"></div>
+      <div id="splash"><img src="icons/icon-192.png" alt="" width="96" height="96"><span role="status">Loading the chart…</span><button type="button" id="splash-fresh" hidden title="Drops this device's saved copy of the app and loads it again from the server">Start fresh</button></div>
+      <div id="overlay"><div id="legend-line"><span id="legend"></span><span class="lg-bs" id="bars-bs"><button type="button" class="lg-b lg-eye" id="bars-eye" title="Hide the price bars (studies and drawings stay)"></button></span></div><div id="dwin" hidden></div><div id="cmp-lg" hidden></div><div id="legend-st"></div><div id="lv-meta"></div></div>
+      <div id="amt-dash" hidden title="Tap to fold or unfold (this app only)"><div class="hd"><span class="t">Tatanka AMT v1.1.0</span>
+      </div><div class="rows"></div></div>
+      <div id="amt-warn" hidden></div>
+      <div id="draw-bar" hidden role="toolbar" aria-label="Drawing tools">
+        <button type="button" data-tool="select" class="on" title="Select and move (Esc)"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M5 3l10 7-5 1-2 5z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+        <button type="button" data-tool="hline" title="Horizontal line"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M2 10h16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+        <button type="button" data-tool="hray" title="Horizontal ray"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M5 10h13M5 7v6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+        <button type="button" data-tool="trend" title="Trend line: click and click, or drag"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M3 16L17 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+        <button type="button" data-tool="rect" title="Rectangle"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M3 5h14v10H3z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+        <button type="button" data-tool="fib" title="Fib retracement"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M2 4h16M2 8h16M2 12h16M2 16h16M4 16L16 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+        <button type="button" data-tool="arrow" title="Arrow: click and click, or drag"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M3 16L16 4M10 4h6v6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <button type="button" data-tool="vline" title="Vertical line"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M10 2v16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <button type="button" data-tool="channel" title="Parallel channel: two clicks for the line, a third for the width"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M2 12L14 4M6 17L18 9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <button type="button" data-tool="fibext" title="Trend-based fib extension: three clicks (start, end, retrace)"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M2 4h16M2 9h16M2 14h16M3 17l5-12 4 7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <button type="button" data-tool="long" title="Long position: click the entry"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M3 10h14M3 3h14v7H3zM3 10h14v6H3z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <button type="button" data-tool="short" title="Short position: click the entry"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M3 10h14M3 10h14v7H3zM3 4h14v6H3z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <button type="button" data-tool="prange" title="Price range"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M10 3v14M7 6l3-3 3 3M7 14l3 3 3-3M4 3h12M4 17h12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <button type="button" data-tool="drange" title="Date range"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M3 10h14M6 7l-3 3 3 3M14 7l3 3-3 3M3 4v12M17 4v12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <button type="button" data-tool="text" title="Text"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M4 4h12M10 4v13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+        <button type="button" data-tool="measure" title="Measure: drag, or tap two points (desktop: Shift+drag anywhere)"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M3 14L14 3l3 3L6 17zM6 11l2 2M8.5 8.5l1.5 1.5M11 6l2 2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg></button>
+        <button type="button" data-act="paste" title="Paste levels (e.g. 7845.75|VAH, 7830|POC)"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M5 4h10M5 8h10M5 12h10M5 16h6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+        <button type="button" data-act="magnet" title="Magnet: snap to the bar's open, high, low or close"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M5 3v7a5 5 0 0 0 10 0V3M5 6h3M12 6h3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+        <button type="button" data-act="undo" title="Undo (Ctrl+Z)"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M7 5L3 9l4 4M3 9h9a5 5 0 0 1 0 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+        <button type="button" data-act="redo" title="Redo (Ctrl+Y)"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" style="transform: scaleX(-1)"><path d="M7 5L3 9l4 4M3 9h9a5 5 0 0 1 0 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+        <button type="button" data-act="tree" title="Object tree: every drawing on this symbol (hide, lock, delete each)"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M4 4h3M4 10h3M4 16h3M10 4h7M10 10h7M10 16h7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+        <button type="button" data-act="hide" title="Hide drawings"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M2 10s3-6 8-6 8 6 8 6-3 6-8 6-8-6-8-6zM10 8a2 2 0 1 0 0 4 2 2 0 0 0 0-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+        <button type="button" data-act="clear" title="Delete all drawings on this symbol"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M4 6h12M8 6V4h4v2M6 6l1 11h6l1-11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+      </div>
+      <button type="button" id="ax-plus" hidden title="Add an alert or a line at this price" aria-label="Alert or line at this price">+</button>
+      <div id="ps-ctl" role="group" aria-label="Price scale">
+        <button type="button" id="news-pill" hidden></button>
+        <button type="button" id="clock" aria-haspopup="menu" title="Time zone"><span id="clock-t"></span><span class="tz"> CT</span></button>
+        <button type="button" id="ps-pct" title="Percent scale: from the first bar in view" aria-pressed="false">%</button>
+        <button type="button" id="ps-log" title="Logarithmic scale" aria-pressed="false">log</button>
+        <button type="button" id="ps-auto" title="Auto (fits the data to the screen). Dragging the price axis turns it off; a double-click on the axis turns it back on" aria-pressed="false">auto</button>
+        <button type="button" id="ps-lock" title="Lock price to bar ratio: zooming keeps the chart's proportions (regular scale only)" aria-label="Lock price to bar ratio" aria-pressed="false">🔒</button>
+      </div>
+      <div id="nav" role="toolbar" aria-label="Chart navigation">
+        <button type="button" data-nav="out" title="Zoom out (− or ↓)">−</button>
+        <button type="button" data-nav="in" title="Zoom in (+ or ↑)">+</button>
+        <button type="button" data-nav="left" title="Scroll left (←)">‹</button>
+        <button type="button" data-nav="right" title="Scroll right (→)">›</button>
+        <button type="button" data-nav="reset" title="Reset the view: latest bars, auto-scale (Alt+R)">⟲</button>
+        <button type="button" data-nav="date" title="Go to date (Alt+G)" aria-label="Go to date"><svg viewBox="0 0 20 20" width="15" height="15" aria-hidden="true"><rect x="3" y="4.5" width="14" height="12" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M3 8.5h14M7 3v3M13 3v3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button>
+      </div>
+      <button type="button" id="go-live" hidden title="Scroll to the latest bar (End)">»</button>
+      <div id="quick" hidden><input id="quick-in" autocomplete="off" spellcheck="false" aria-label="Symbol or timeframe" placeholder="Symbol, name or timeframe"><div id="quick-types" class="ss-chips"></div><div id="quick-list" class="ss-list" hidden></div><small>Stocks, ETFs, futures, forex, crypto, FRED · timeframes: 5 = 5m · 1h · D · 2000t</small></div>
+      <div id="replay-bar" hidden role="toolbar" aria-label="Bar replay">
+        <b class="rp-tag">Replay</b><span id="rp-when"></span>
+        <span id="rp-pick" hidden><input type="datetime-local" id="rp-date" aria-label="Replay from, in the chosen time zone"><button type="button" id="rp-go">Go</button></span>
+        <button type="button" id="rp-play" title="Play (Space)">▶</button>
+        <button type="button" id="rp-step" title="Next bar (Shift+→)">⏭</button>
+        <select id="rp-speed" title="Bars per second" aria-label="Replay speed, bars per second">
+          <option value="0.5">½/s</option><option value="1">1/s</option><option value="2">2/s</option><option value="5">5/s</option><option value="10">10/s</option>
+        </select>
+        <button type="button" id="rp-jump" title="Pick a new start">Jump</button>
+        <button type="button" id="rp-exit" title="Back to live">✕</button>
+      </div>
+      <div id="draw-tree" hidden role="dialog" aria-label="Drawings on this symbol"></div>
+      <div id="draw-edit" hidden>
+        <div class="de-hd"><b class="de-title">Drawing</b><span class="grow"></span><button type="button" data-act="less" title="Back to the small bar">✕</button></div>
+        <label class="df" data-f="color" title="Color"><span class="lb">Color</span><input type="color" data-k="color"></label>
+        <label class="df" data-f="width" title="Width"><span class="lb">Width</span><select data-k="width"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>8</option></select></label>
+        <label class="df" data-f="dash" title="Line style"><span class="lb">Line</span><select data-k="dash"><option value="solid">solid</option><option value="dashed">dashed</option><option value="dotted">dotted</option></select></label>
+        <label class="df" data-f="text"><span class="lb">Text</span><input data-k="text" type="text" maxlength="500" placeholder="label" size="12"></label>
+        <label class="df" data-f="fontSize" title="Text size"><span class="lb">Text size</span><span class="s">size</span><input type="number" data-k="fontSize" min="8" max="48"></label>
+        <label class="df" data-f="fill" title="Fill"><span class="lb">Fill</span><span class="s">fill</span><input type="color" data-k="fill"></label>
+        <label class="df" data-f="fillOpacity" title="Fill opacity"><span class="lb">Fill opacity</span><span class="s">bg</span><input type="number" data-k="fillOpacity" min="0" max="100" step="5"><span>%</span></label>
+        <label class="df" data-f="levels" title="Fib levels"><span class="lb">Levels</span><input data-k="levels" type="text" size="18" placeholder="0, 0.236, 0.382, 0.5, 0.618, 0.786, 1"></label>
+        <label class="df" data-f="qty" title="Contracts"><span class="lb">Contracts</span><span class="s">qty</span><input type="number" data-k="qty" min="1" max="100000" step="1" style="width:64px"></label>
+        <label class="df chk" data-f="showPrice"><input type="checkbox" data-k="showPrice"> <span class="s">price</span><span class="l">Price on the axis</span></label>
+        <label class="df chk" data-f="mid"><input type="checkbox" data-k="mid"> <span class="s">midline</span><span class="l">Middle line</span></label>
+        <label class="df chk" data-f="extendLeft"><input type="checkbox" data-k="extendLeft"> <span class="s">←</span><span class="l">Extend left</span></label>
+        <label class="df chk" data-f="extendRight"><input type="checkbox" data-k="extendRight"> <span class="s">→</span><span class="l">Extend right</span></label>
+        <label class="df chk" data-f="reverse"><input type="checkbox" data-k="reverse"> <span class="s">reverse</span><span class="l">Reverse</span></label>
+        <label class="df chk" data-f="background"><input type="checkbox" data-k="background"> <span class="s">box</span><span class="l">Background box</span></label>
+        <span class="df alert-ctl" data-f="alert"><label class="chk" title="Alert to your channels when price crosses"><input type="checkbox" data-k="alertOn"> <span class="s">alert</span><span class="l">Alert when price</span></label>
+          <select data-k="alertDir"><option value="cross">crosses</option><option value="above">crosses up</option><option value="below">crosses down</option></select>
+          <small class="alert-state"></small></span>
+        <label class="df chk" data-f="tab" title="Off: on every tab of this symbol. On: only on this chart tab."><input type="checkbox" data-k="tabOnly"> <span class="s">this tab</span><span class="l">This tab only</span></label>
+        <div class="df pts" data-f="pts"></div>
+        <div class="df tpls" data-f="tpls"><span class="lb">Templates</span><div class="tpl-list"></div>
+          <div class="tpl-act"><button type="button" data-act="tpl-save">Save this style as…</button></div></div>
+        <label class="df" data-f="tpl" title="Style templates for this tool"><select data-k="tpl"></select></label>
+        <button type="button" class="de-btn" data-act="more" title="All settings, exact prices and templates (or double-click the drawing)">⚙</button>
+        <button type="button" class="de-btn" data-act="clone" title="Clone: a copy where it is, to move (Ctrl+C, Ctrl+V pastes on any symbol)">⧉</button>
+        <button type="button" class="de-btn" data-act="lock" title="Lock: it can no longer be moved">🔓</button>
+        <button type="button" class="de-btn" data-act="delete" title="Delete (Del)">🗑</button>
+        <button type="button" class="de-btn" data-act="close" title="Done (Esc)">✕</button>
+      </div>
+      <div id="draw-paste" hidden>
+        <b>Paste levels</b>
+        <textarea rows="5" spellcheck="false" placeholder="7845.75|VAH, 7830|POC, 7810|VAL&#10;Commas, semicolons or new lines. Label optional."></textarea>
+        <div class="row"><label>Range top <input type="number" data-k="top" step="any" size="8"></label><label>bottom <input type="number" data-k="bottom" step="any" size="8"></label></div>
+        <div class="row"><label>Color <input type="color" data-k="pcolor" value="#ff9800"></label>
+          <label class="chk"><input type="checkbox" data-k="replace" checked> replace the last pasted set</label></div>
+        <div class="row"><button type="button" data-act="add">Add</button><button type="button" data-act="cancel">Cancel</button></div>
+      </div>
+    </section>
+
+    <aside id="side">
+      <div id="side-grip" role="separator" tabindex="0" aria-label="Resize the panel" title="Drag to resize (double-click: back to the default)"></div>
+      <nav class="tabs">
+        <button type="button" class="pg-chart" title="The chart">Chart</button>
+        <button data-tab="watch" class="on">Watchlist</button>
+        <button data-tab="alerts">Alerts <span id="alert-count"></span></button>
+        <button data-tab="plan">Plan</button>
+        <button data-tab="tape" class="pg-extra">Tape</button>
+        <button data-tab="journal" class="pg-extra">Journal</button>
+        <button data-tab="calendar" class="pg-extra" title="Economic calendar">Calendar</button>
+        <button type="button" class="pg-more" aria-haspopup="menu">More</button>
+        <button type="button" id="side-toggle" title="Hide the panel" aria-label="Hide the watchlist and alerts panel" aria-expanded="true">⇥</button>
+      </nav>
+
+      <div id="tab-watch" class="tab on">
+        <div class="wl-bar">
+          <button type="button" id="wl-name" class="menu-btn" aria-haspopup="menu" title="Watchlists"><span></span> ▾</button>
+          <span id="wl-flags" class="wl-flags" role="group" aria-label="Flagged lists"></span>
+          <span class="grow"></span>
+          <button type="button" id="wl-add" class="ib" title="Add symbol" aria-label="Add symbol">+</button>
+          <button type="button" id="wl-more" class="ib menu-btn" aria-haspopup="menu" title="More" aria-label="Watchlist options">⋯</button>
+        </div>
+        <form id="wl-addbox" hidden autocomplete="off">
+          <input id="wl-add-in" placeholder="Search: apple, ES, EURUSD, 10-year yield…" aria-label="Symbol to add" spellcheck="false">
+          <button type="submit" class="primary">Add</button><button type="button" id="wl-add-close" aria-label="Close">✕</button>
+          <div id="wl-add-types" class="ss-chips"></div>
+          <div id="wl-add-list" class="ss-list" hidden></div>
+        </form>
+        <div class="wl-scroll" tabindex="0" aria-label="Watchlist">
+          <div class="wl-head"><span data-col="sym">Symbol</span><span data-col="last">Last</span><span data-col="chg">Chg</span><span data-col="pct">Chg%</span><span data-col="vol">Vol</span></div>
+          <div class="wl-body"></div>
+        </div>
+        <div id="wl-detail"></div>
+      </div>
+
+      <div id="tab-plan" class="tab">
+        <section class="plan-card">
+          <header><b>Daily levels</b><span class="grow"></span><button type="button" class="ib" data-ind="amt" title="AMT Toolkit settings" aria-label="AMT Toolkit settings">⚙</button></header>
+          <p class="plan-src" id="pl-lv-src"></p>
+          <textarea id="pl-lv" rows="3" spellcheck="false" autocomplete="off" aria-label="Daily levels line for this symbol"
+            placeholder="2026-01-15, 5000.00, 5020.00, 5040.00, 5060.00, 4980.00, 4960.00, 4940.00"></textarea>
+          <p class="hint">As in TradingView: the date, the pivot, then any prices (above the pivot = resistance, below = support). Drawn by the AMT Toolkit, with zones and labels, and as plain lines by the Daily levels study.</p>
+          <div class="row"><button type="button" class="primary" id="pl-lv-save">Apply</button><button type="button" id="pl-lv-clear">Clear</button><span class="dim" id="pl-lv-msg"></span></div>
+        </section>
+        <section class="plan-card">
+          <header><b>If/Then</b><span class="grow"></span><label class="chk"><input type="checkbox" data-st="ifthen"> Show</label>
+            <button type="button" class="ib" data-ind="ifthen" title="If/Then settings" aria-label="If/Then settings">⚙</button></header>
+          <textarea id="pl-if" rows="8" spellcheck="false" autocomplete="off" aria-label="If/Then block for this symbol"
+            placeholder="Paste an If/Then block: BIAS|LO|HI|TEXT, one band per line, top band first.&#10;U|5050|9999999|Accepts above 5050 → continuation&#10;P|4995|5005|Pivot ~5000&#10;D|0|4960|Below 4960 → range break"></textarea>
+          <div class="row"><button type="button" class="primary" id="pl-if-save">Save</button><span class="dim" id="pl-if-msg"></span></div>
+        </section>
+        <section class="plan-card">
+          <header><b>Level Lines</b><span class="grow"></span><label class="chk"><input type="checkbox" data-st="lines"> Show</label>
+            <button type="button" class="ib" data-ind="lines" title="Level Lines settings" aria-label="Level Lines settings">⚙</button></header>
+          <div class="row"><label class="inline">Range top <input type="number" id="pl-ll-top" step="any" min="0"></label>
+            <label class="inline">bottom <input type="number" id="pl-ll-bot" step="any" min="0"></label></div>
+          <textarea id="pl-ll" rows="5" spellcheck="false" autocomplete="off" aria-label="Level Lines for this symbol"
+            placeholder="7845.75|VAH, 7830|POC, 7810|VAL&#10;price|label|color|style|width, e.g. 7845.75|VAH|Magenta|Dash|2"></textarea>
+          <div class="row"><button type="button" class="primary" id="pl-ll-save">Save</button><span class="dim" id="pl-ll-msg"></span></div>
+        </section>
+        <button type="button" id="pl-all" class="wide">All indicators and settings…</button>
+      </div>
+
+      <div id="tab-tape" class="tab">
+        <div class="tp-bar"><b id="tp-sym"></b><span class="grow"></span>
+          <label class="inline" title="Smallest trade shown">min <input type="number" id="tp-min" min="1" max="100000" step="1"></label></div>
+        <div class="tp-head"><span>Time <span data-zone>CT</span></span><span>Price</span><span>Size</span></div>
+        <div id="tp-list"></div>
+        <p class="hint tp-note">Time and sales: fills at the same millisecond on the same side are one trade. Gold rows are at least the Big trades size.</p>
+      </div>
+
+      <div id="tab-journal" class="tab">
+        <div class="jr-bar"><select id="jr-range" aria-label="Period"><option value="1">Today</option><option value="7">7 days</option>
+            <option value="30" selected>30 days</option><option value="90">90 days</option><option value="365">1 year</option></select>
+          <select id="jr-acct" aria-label="Account"><option value="">All accounts</option></select>
+          <label class="chk" title="Only the symbol on the chart"><input type="checkbox" id="jr-sym"> <span id="jr-sym-name">ES</span></label></div>
+        <div id="jr-stats"></div>
+        <canvas id="jr-days" height="70" aria-label="Net P&amp;L by day"></canvas>
+        <div id="jr-list"></div>
+        <p class="hint jr-note">From your NinjaTrader fills, sent by the add-on (read-only). A trade runs flat to flat; P&amp;L after commissions; MAE/MFE from 1-minute bars. Click one to see it on the chart.</p>
+      </div>
+
+      <div id="tab-calendar" class="tab">
+        <div class="cal-bar">
+          <span class="seg" id="cal-imp" title="Impact"><button type="button" data-v="High">High</button><button type="button" data-v="Medium">Medium</button><button type="button" data-v="Low">Low</button><button type="button" data-v="Earnings" title="Major companies' earnings (blue)">Earnings</button></span>
+          <select id="cal-ccy" aria-label="Currency"><option value="USD">USD</option><option value="EUR">EUR</option><option value="GBP">GBP</option>
+            <option value="JPY">JPY</option><option value="CAD">CAD</option><option value="AUD">AUD</option><option value="CNY">CNY</option><option value="">All</option></select>
+        </div>
+        <div id="cal-list"></div>
+        <div class="cal-warn"><label class="chk"><input type="checkbox" id="cal-warn"> Warn me</label>
+          <input type="number" id="cal-min" min="1" max="120" step="1" aria-label="Minutes before"> min before these events</div>
+        <div class="cal-warn cal-cd"><label class="chk" title="The next of these events within the hour, counting down by the chart's clock (red in its last 2 minutes); tap it for this tab"><input type="checkbox" id="cal-cd"> Countdown on the chart</label></div>
+        <div class="cal-warn cal-earn"><span>Earnings &ge; $</span><input type="number" id="cal-cap" min="5" max="10000" step="5" aria-label="Minimum market cap, billions of dollars">B
+          <input type="text" id="cal-syms" placeholder="+ tickers" aria-label="Also these tickers" autocapitalize="characters" autocomplete="off" spellcheck="false"></div>
+        <p class="hint" id="cal-note">ForexFactory's calendar, in the clock's time zone. Warnings go to your alert channels and the Alerts tab. Earnings: Nasdaq's calendar, companies over the market cap plus your tickers; BMO before the open, AMC after the close. Studies &gt; Economic events marks them on the chart.</p>
+      </div>
+
+      <div id="tab-alerts" class="tab">
+        <div class="al-top"><button type="button" id="al-new" class="primary">+ Create alert</button><button type="button" id="al-clear" hidden>Delete stopped</button>
+          <small class="dim">or Alt+A, right-click the chart, or the + by the price axis (phone: hold the chart, then tap +)</small></div>
+        <ul id="alert-list"></ul>
+        <h4>Recent</h4>
+        <ul id="event-list"></ul>
+        <p id="notify-status"></p>
+        <button type="button" class="link" id="notify-conn">Alert channels…</button>
+        <div class="snd-row" title="A chime here when an alert fires: two notes for price and drawn lines, three rising for levels and studies, four for news (this device)">
+          <label class="chk"><input type="checkbox" id="snd-on"> Sound</label>
+          <input type="range" id="snd-vol" min="0" max="100" step="5" aria-label="Volume">
+          <button type="button" class="link" id="snd-test">Test</button></div>
+      </div>
+    </aside>
+  </main>
+
+  <div id="tz-menu" class="menu" role="menu" aria-label="Time zone" hidden></div>
+  <div id="ind-dlg" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="ind-h">
+    <div class="sheet">
+      <div class="sheet-hd">
+        <b id="ind-h">Indicators</b>
+        <select class="ind-pick" aria-label="Indicator"></select>
+        <input type="search" class="ind-q" placeholder="Find a setting" aria-label="Find a setting" autocomplete="off">
+        <button type="button" class="ind-close" title="Close without applying" aria-label="Close">✕</button>
+      </div>
+      <div class="ind-main">
+        <nav class="ind-left"><div class="ind-cap">Configured</div><div class="ind-list"></div>
+          <p class="hint">The box shows or hides it on the chart. Settings are NinjaTrader's, with its defaults, and each chart's own (on every device); Apply to all charts puts them on every chart.</p></nav>
+        <section class="ind-right">
+          <div class="ind-cap"><span class="ind-title"></span><span class="grow"></span>
+            <button type="button" class="link ind-expand">Expand all</button><button type="button" class="link ind-collapse">Collapse all</button></div>
+          <p class="hint ind-note"></p>
+          <div class="ind-body"></div>
+        </section>
+      </div>
+      <div class="sheet-ft">
+        <span class="ind-info dim"></span>
+        <select class="ind-tpl" aria-label="Presets of this indicator's settings" title="NinjaTrader's Save as template: this indicator's settings under a name, loaded back here"></select>
+        <button type="button" class="ind-reset">Reset to NinjaTrader defaults</button>
+        <button type="button" class="ind-all" title="This indicator's settings, as shown, on every chart: each tab of every chart, layout and workspace">Apply to all charts</button>
+        <button type="button" class="ind-cancel">Cancel</button>
+        <button type="button" class="ind-apply">Apply</button>
+        <button type="button" class="ind-ok primary">OK</button>
+      </div>
+    </div>
+  </div>
+  <div id="al-dlg" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="al-title">
+    <form class="sheet" id="al-form" autocomplete="off">
+      <div class="sheet-hd"><b id="al-title">Create alert</b><button type="button" id="al-close" aria-label="Close">✕</button></div>
+      <div class="al-body">
+        <label class="fld"><span>Condition</span><select id="al-src">
+          <option value="price">Price</option><option value="vwap">Session VWAP</option><option value="rth_vwap">RTH VWAP</option>
+          <option value="poc">POC</option><option value="vah">VAH</option><option value="val">VAL</option><option value="level">Daily levels</option>
+        </select></label>
+        <div class="fld" id="al-i-row" hidden><span>Indicator</span><span class="pair">
+          <select id="al-ispec" aria-label="Timeframe it runs on"></select>
+          <span id="al-iparams"></span>
+          <select id="al-iline" aria-label="Line"></select>
+        </span></div>
+        <label class="fld" id="al-op-row"><span></span><select id="al-op">
+          <option value="cross">Crossing</option><option value="above">Crossing up</option><option value="below">Crossing down</option>
+          <option value="gt">Greater than</option><option value="lt">Less than</option>
+          <option value="enter">Entering channel</option><option value="exit">Exiting channel</option>
+        </select></label>
+        <div class="fld" id="al-vs-row" hidden><span>Against</span><span class="pair">
+          <select id="al-vs" aria-label="What it crosses"></select>
+          <input id="al-vsv" inputmode="decimal" aria-label="Value or length" style="width:88px"></span></div>
+        <label class="fld" id="al-v1-row"><span id="al-v1-label">Value</span><input id="al-v1" inputmode="decimal"></label>
+        <label class="fld" id="al-v2-row" hidden><span>Lower bound</span><input id="al-v2" inputmode="decimal"></label>
+        <label class="fld" id="al-band-row" hidden><span>Line</span><select id="al-band">
+          <option value="0">VWAP</option><option value="1">+1σ band</option><option value="-1">−1σ band</option><option value="2">+2σ band</option>
+          <option value="-2">−2σ band</option><option value="3">+3σ band</option><option value="-3">−3σ band</option>
+        </select></label>
+        <div class="fld" id="al-prof-row" hidden><span>Profile</span><span class="pair"><select id="al-prof" aria-label="Session"><option value="eth">ETH</option><option value="rth">RTH</option></select>
+          <select id="al-which" aria-label="Which session"><option value="current">developing</option><option value="previous">previous</option></select></span></div>
+        <label class="fld" id="al-tol-row" hidden><span>Touch within</span><span class="pair"><input id="al-tol" type="number" min="0" max="200" step="1" value="0"> ticks</span></label>
+        <div class="fld" id="al-on-row" hidden><span>Check</span><span class="seg" id="al-on"><button type="button" data-v="close" title="TradingView's Once Per Bar Close">Bar close</button><button type="button" data-v="bar" title="TradingView's Once Per Bar: the first trade that meets it">Intrabar</button></span></div>
+        <div class="fld"><span>Trigger</span><span class="seg" id="al-trig"><button type="button" data-v="once">Only once</button><button type="button" data-v="repeat">Every time</button></span></div>
+        <small class="hint" id="al-trig-hint"></small>
+        <div class="fld"><span>Expiration</span><span class="seg" id="al-expseg"><button type="button" data-v="never" title="Never expires: it stays armed until you delete it">Open-ended</button><button type="button" data-v="date">Until…</button></span></div>
+        <div class="fld" id="al-exp-row" hidden><span></span><span class="pair"><input type="checkbox" id="al-exp-on" hidden><input type="datetime-local" id="al-exp" aria-label="Expires at, in the chart's time zone"> <span id="al-exp-tz">CT</span></span></div>
+        <label class="fld"><span>Message</span><input id="al-msg" maxlength="200" placeholder="optional, added to the notification"></label>
+      </div>
+      <div class="sheet-ft"><button type="button" id="al-del" hidden>Delete</button><span class="grow"></span>
+        <button type="button" id="al-cancel">Cancel</button><button type="submit" class="primary" id="al-ok">Create</button></div>
+    </form>
+  </div>
+  <div id="login" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="login-h">
+    <form class="sheet" id="login-form">
+      <img src="icons/icon-192.png" alt="" width="72" height="72">
+      <b id="login-h">Tatanka Charts</b>
+      <input type="text" name="username" autocomplete="username" value="Tatanka Charts" hidden>
+      <input type="password" id="login-pw" name="password" autocomplete="current-password" placeholder="Password" aria-label="Password" required>
+      <button type="submit" class="primary" id="login-ok">Sign in</button>
+      <p id="login-msg" role="alert"></p>
+    </form>
+  </div>
+  <div id="cn-dlg" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="cn-title">
+    <div class="sheet">
+      <div class="sheet-hd"><b id="cn-title">Connections</b><span class="grow"></span>
+        <button type="button" id="cn-check" title="Try every connection in use (alert channels get a test message)">Check all</button>
+        <button type="button" id="cn-close" aria-label="Close">✕</button></div>
+      <div id="cn-sum" hidden></div>
+      <div class="cn-body" id="cn-list"><p class="dim">Loading…</p></div>
+      <div class="sheet-ft"><small class="dim">Saved on this server and applied at once. Keys are never shown again. Where nothing is saved here, .env's value applies.</small></div>
+    </div>
+  </div>
+  <div id="ask-dlg" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="ask-title">
+    <form class="sheet" id="ask-form" autocomplete="off">
+      <div class="sheet-hd"><b id="ask-title"></b></div>
+      <div class="al-body"><p id="ask-msg" hidden></p>
+        <div id="ask-combo"><input id="ask-in" maxlength="60" aria-labelledby="ask-title" aria-controls="ask-list"><button type="button" id="ask-drop" hidden title="Saved ones" aria-label="Show the saved ones" aria-controls="ask-list">▾</button></div>
+        <div id="ask-list" role="listbox" aria-label="Saved ones" hidden></div>
+        <p id="ask-hint" hidden></p></div>
+      <div class="sheet-ft"><span class="grow"></span><button type="button" id="ask-cancel">Cancel</button><button type="submit" class="primary" id="ask-ok">OK</button></div>
+    </form>
+  </div>
+  <div id="keys-dlg" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="keys-title">
+    <div class="sheet">
+      <div class="sheet-hd"><b id="keys-title">Keyboard shortcuts</b><button type="button" class="ind-close" id="keys-close" aria-label="Close">✕</button></div>
+      <div class="al-body">
+          <h5>Chart</h5>
+          <div class="k"><kbd>A letter or digit</kbd><span>symbol or timeframe switch (5, 1h, NQ…)</span></div>
+          <div class="k"><kbd>/</kbd><span>find an indicator</span></div>
+          <div class="k"><kbd>← →</kbd><span>scroll</span></div>
+          <div class="k"><kbd>↑ ↓  + −</kbd><span>zoom</span></div>
+          <div class="k"><kbd>Home / End</kbd><span>first bar / latest bar</span></div>
+          <div class="k"><kbd>Alt+R</kbd><span>reset the view</span></div>
+          <div class="k"><kbd>Alt+S</kbd><span>save a picture</span></div>
+          <div class="k"><kbd>Alt+A</kbd><span>create an alert</span></div>
+          <div class="k"><kbd>Alt+G</kbd><span>go to a date</span></div>
+          <div class="k"><kbd>Shift+drag</kbd><span>measure</span></div>
+          <div class="k"><kbd>Wheel on the price axis</kbd><span>scale the prices</span></div>
+          <div class="k"><kbd>Double-click an axis</kbd><span>auto scale again</span></div>
+          <h5>Drawings</h5>
+          <div class="k"><kbd>Alt+H</kbd><span>horizontal line at the pointer</span></div>
+          <div class="k"><kbd>Alt+J</kbd><span>horizontal ray</span></div>
+          <div class="k"><kbd>Alt+V</kbd><span>vertical line</span></div>
+          <div class="k"><kbd>Alt+T</kbd><span>trend line</span></div>
+          <div class="k"><kbd>Alt+F</kbd><span>fib retracement</span></div>
+          <div class="k"><kbd>Alt+Shift+R</kbd><span>rectangle</span></div>
+          <div class="k"><kbd>Ctrl+Z / Ctrl+Y</kbd><span>undo / redo</span></div>
+          <div class="k"><kbd>Ctrl+C / Ctrl+V</kbd><span>copy / paste a drawing</span></div>
+          <div class="k"><kbd>Del</kbd><span>delete the selected drawing</span></div>
+          <div class="k"><kbd>Esc</kbd><span>stop drawing, unselect</span></div>
+          <h5>Tabs</h5>
+          <div class="k"><kbd>Double-click / F2</kbd><span>rename</span></div>
+          <div class="k"><kbd>Drag</kbd><span>move</span></div>
+          <div class="k"><kbd>Shift+← →</kbd><span>move the focused tab</span></div>
+          <div class="k"><kbd>Middle-click / Del</kbd><span>close</span></div>
+          <div class="k"><kbd>Right-click / long press</kbd><span>more</span></div>
+      </div>
+    </div>
+  </div>
+  <div id="ctx" hidden role="menu"></div>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <div id="fired" role="alertdialog" aria-labelledby="fired-title" hidden>
+    <div class="fired-head"><b id="fired-title">Alert</b><button id="fired-ok" type="button">OK</button></div>
+    <ul id="fired-list"></ul>
+  </div>
+  <script src="vendor/lightweight-charts.standalone.production.js"></script>
+  <script src="press.js"></script>
+  <script src="ta.js"></script>
+  <script src="studies.js"></script>
+  <script src="drawings.js"></script>
+  <script src="symsearch.js"></script>
+  <script src="watchlist.js"></script>
+  <script src="indicators.js"></script>
+  <script src="layout.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

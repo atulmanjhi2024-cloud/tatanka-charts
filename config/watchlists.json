@@ -1,0 +1,53 @@
+{
+  "_comment": "First-run watchlists, TradingView style: symbols as TradingView writes them (ES1! = front-month future of ES), '###NAME' starts a section. After the first run the lists live in the database and are edited in the app (import a TradingView export there too). names: descriptions shown in the details panel.",
+  "lists": [
+    {"name": "Main", "items": [
+      "###FUTURES", "ES1!", "NQ1!", "RTY1!", "YM1!", "VIX", "SPX", "AAPL+GOOGL+NVDA+META+MSFT+TSLA+AMZN", "BTCUSD",
+      "DXY", "FDAX1!", "FTUK1!", "HSI1!", "KOSPI", "MOVE", "NDX", "NIY1!", "SKEW/VIX", "USDJPY",
+      "###COMMODITIES", "BZ1!", "CL1!", "NG1!", "GC1!", "SI1!", "PA1!", "LE1!", "NCF1!", "HG1!", "ZC1!", "ZS1!",
+      "###BONDS", "SR31!", "US02Y", "US05Y", "US10Y", "US30Y", "UB1!", "ZB1!", "ZF1!", "ZN1!", "ZT1!", "TLT", "TNX",
+      "###MAG 7", "AAPL", "AMZN", "AVGO", "GOOG", "META", "MSFT", "NVDA", "SPCX", "TSLA",
+      "###SECTORS", "XLB", "XLC", "XLE", "XLF", "XLI", "XLK", "XLP", "XLRE", "XLU", "XLY", "XLV",
+      "###INDEXES", "SPY", "RSP", "QQQ", "DJI", "HSI", "IWM", "NI225", "NIFTY", "SVIX", "SVXY", "SX5E",
+      "###ETF", "BNO", "DIA", "KRE", "QQQE", "UNG", "VOO", "VTI", "VYM",
+      "###FOREX", "EURUSD", "GBPUSD", "USDCNH", "USDJPY",
+      "###CRYPTO", "BTCUSDT", "ETHUSD"
+    ]}
+  ],
+  "names": {
+    "ES1!": "S&P 500 E-mini Futures", "NQ1!": "NASDAQ 100 E-mini Futures",
+    "RTY1!": "E-mini Russell 2000 Index Futures", "YM1!": "E-mini Dow Jones ($5) Futures",
+    "VIX": "Volatility S&P 500 Index", "SPX": "S&P 500 Index",
+    "AAPL+GOOGL+NVDA+META+MSFT+TSLA+AMZN": "Magnificent 7 basket", "BTCUSD": "Bitcoin / U.S. Dollar",
+    "DXY": "U.S. Dollar Index", "FDAX1!": "DAX Futures", "FTUK1!": "FTSE 100 Index Futures",
+    "HSI1!": "Hang Seng Index Futures", "KOSPI": "KOSPI Composite Index",
+    "MOVE": "ICE BofAML U.S. Bond Market Option Volatility Estimate", "NDX": "Nasdaq 100 Index",
+    "NIY1!": "Nikkei/Yen Futures", "SKEW/VIX": "SKEW / VIX ratio", "USDJPY": "U.S. Dollar / Japanese Yen",
+    "BZ1!": "Brent Crude Oil Last Day Financial Futures", "CL1!": "Light Crude Oil Futures", "GC1!": "Gold Futures",
+    "LE1!": "Live Cattle Futures", "NCF1!": "globalCOAL Newcastle Coal Futures", "NG1!": "Natural Gas Futures",
+    "PA1!": "Palladium Futures", "SI1!": "Silver Futures", "HG1!": "Copper Futures", "ZC1!": "Corn Futures",
+    "ZS1!": "Soybean Futures", "SR31!": "Three-Month SOFR Futures", "TLT": "iShares 20+ Year Treasury Bond ETF",
+    "TNX": "CBOE 10 Year Treasury Note Yield", "UB1!": "Ultra U.S. Treasury Bond Futures",
+    "US02Y": "US Government Bonds 2 YR Yield", "US05Y": "US Government Bonds 5 YR Yield",
+    "US10Y": "US Government Bonds 10 YR Yield", "US30Y": "US Government Bonds 30 YR Yield", "ZB1!": "T-Bond Futures",
+    "ZF1!": "5-Year T-Note Futures", "ZN1!": "10-Year T-Note Futures", "ZT1!": "2-Year T-Note Futures",
+    "AAPL": "Apple Inc", "AMZN": "Amazon.com, Inc.", "AVGO": "Broadcom Inc.", "GOOG": "Alphabet Inc (Google) Class C",
+    "META": "Meta Platforms, Inc.", "MSFT": "Microsoft Corp.", "NVDA": "NVIDIA Corporation",
+    "SPCX": "Space Exploration Technologies Corp", "TSLA": "Tesla, Inc.", "XLB": "Materials Select Sector SPDR ETF",
+    "XLC": "Communication Services Select Sector SPDR ETF", "XLE": "Energy Select Sector SPDR ETF",
+    "XLF": "Financial Select Sector SPDR ETF", "XLI": "Industrial Select Sector SPDR ETF",
+    "XLK": "Technology Select Sector SPDR ETF", "XLP": "Consumer Staples Select Sector SPDR ETF",
+    "XLRE": "Real Estate Select Sector SPDR ETF", "XLU": "Utilities Select Sector SPDR ETF",
+    "XLV": "Health Care Select Sector SPDR ETF", "XLY": "Consumer Discretionary Select Sector SPDR ETF",
+    "DJI": "Dow Jones Industrial Average Index", "HSI": "Hang Seng Index", "IWM": "iShares Russell 2000 ETF",
+    "NI225": "Japan 225 Index", "NIFTY": "Nifty 50 Index", "QQQ": "Invesco QQQ Trust",
+    "RSP": "Invesco S&P 500 Equal Weight ETF", "SPY": "SPDR S&P 500 ETF Trust", "SVIX": "-1x Short VIX Futures ETF",
+    "SVXY": "ProShares Short VIX Short-Term Futures ETF", "SX5E": "Euro Stoxx 50 Index",
+    "BNO": "United States Brent Oil Fund", "DIA": "SPDR Dow Jones Industrial Average ETF",
+    "KRE": "SPDR S&P Regional Banking ETF", "QQQE": "Direxion NASDAQ-100 Equal Weighted Index ETF",
+    "UNG": "United States Natural Gas Fund", "VOO": "Vanguard S&P 500 ETF", "VTI": "Vanguard Total Stock Market ETF",
+    "VYM": "Vanguard High Dividend Yield ETF", "EURUSD": "Euro / U.S. Dollar",
+    "GBPUSD": "British Pound / U.S. Dollar", "USDCNH": "U.S. Dollar / Offshore Chinese Yuan",
+    "BTCUSDT": "Bitcoin / TetherUS", "ETHUSD": "Ethereum / U.S. Dollar"
+  }
+}

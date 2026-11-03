@@ -1,0 +1,25 @@
+{
+ "_comment": "Recommended starting settings that differ from each indicator's NinjaTrader defaults (AMT Toolkit groups 1-3, the Gap table at the bottom right, If/Then labels wrapped at about 25 characters). Applied once; anything changed in the app is kept. Change them in the app's Indicators dialog afterwards. \"reset\": settings put back to NinjaTrader's default once, whatever the app had (the AMT profile's Right Align: on, facing left).",
+ "version": 2,
+ "amt": {
+  "lvl_ip_color": 4293584983,
+  "lvl_bull_color": 4294914867,
+  "lvl_bear_color": 4278235904,
+  "lvl_x_offset": 20,
+  "pd_high_c": 4293309184,
+  "pd_low_c": 4293309184
+ },
+ "indicators": {
+  "gap": {
+   "TablePosition": "BottomRight"
+  },
+  "ifthen": {
+   "WrapCharacters": 25
+  }
+ },
+ "reset": {
+  "amt": [
+   "mvp_align_right"
+  ]
+ }
+}

@@ -1,0 +1,9 @@
+{
+  "_comment": "Chartable futures. rth = regular session in CT, for RTH VWAP and profiles. calendar = holiday group in holidays.json (default equity). sim_price = where the simulator starts it while it has no daily levels. sim_follow makes a micro mirror its parent in the simulator.",
+  "ES":  {"name": "E-mini S&P 500",     "tick_size": 0.25, "point_value": 50,   "rth": ["08:30", "15:00"], "sim_price": 6900.0},
+  "NQ":  {"name": "E-mini Nasdaq-100",  "tick_size": 0.25, "point_value": 20,   "rth": ["08:30", "15:00"], "sim_price": 25000.0},
+  "CL":  {"name": "Crude Oil",          "tick_size": 0.01, "point_value": 1000, "rth": ["08:00", "13:30"], "calendar": "energy", "sim_price": 65.0},
+  "GC":  {"name": "Gold",               "tick_size": 0.10, "point_value": 100,  "rth": ["07:20", "12:30"], "calendar": "metals", "sim_price": 3500.0},
+  "MES": {"name": "Micro E-mini S&P",   "tick_size": 0.25, "point_value": 5,    "rth": ["08:30", "15:00"], "sim_follow": "ES"},
+  "MNQ": {"name": "Micro E-mini Nasdaq","tick_size": 0.25, "point_value": 2,    "rth": ["08:30", "15:00"], "sim_follow": "NQ"}
+}

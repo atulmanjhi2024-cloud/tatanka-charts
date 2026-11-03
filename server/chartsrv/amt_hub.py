@@ -1,0 +1,474 @@
+"""Runs the Tatanka AMT Toolkit on the server: one AmtRunner per (symbol, minutes, settings), loaded from stored 1m
+history, fed live minutes, previewed once a second for the charts that show it. Each chart can have its own settings
+(a runner per distinct set; charts on the shared settings share one); the shared ones are the starting point and run
+the alerts (with every group an alert switch that is on needs). AMT alerts are opt-in per symbol and come from one
+dedicated runner per symbol, so they never fire twice."""
+import asyncio
+import hashlib
+import json
+import logging
+import math
+import re
+import sqlite3
+import time
+from collections import deque
+from datetime import datetime
+from pathlib import Path
+
+from . import amt, sessions, workers
+from .amt_runner import AmtRunner
+from .gapfill import filling
+from .models import Bar, Tick
+from .store import iter_bars_1m
+
+log = logging.getLogger(__name__)
+HISTORY_DAYS = 90            # the Toolkit's recommended 90 days loaded
+ALERT_MINUTES = 5            # the runner that alerts, per symbol
+STEP_S = 1.0
+PROFILE_EVERY_S = 5.0
+IDLE_S = 6 * 3600            # an AMT run no chart shows stays loaded this long...
+IDLE_MAX = 12                # ...unless more are idle than this: the longest idle go first
+LIVE_BAR_AGE_MS = 5 * 60_000  # notices from older bars (buffered data catching up) never alert
+# Every setting as NinjaTrader's property grid shows it, with the checks of its ValidateSettings (tools/gen_amt_schema.py).
+SCHEMA = json.loads(Path(__file__).with_name("amt_schema.json").read_text(encoding="utf-8"))
+# NinjaTrader properties that live outside the engine's Settings: where the daily levels come from (daily_levels.py)
+# and the session-change warning. "Paste Levels Here" is per symbol here (the Plan tab), as each NinjaTrader chart
+# has its own.
+EXTRA_DEFAULTS = {"LevelsFile": "", "tzguard_enable": True}
+_EXTRA = [
+    {"name": "LevelsFile", "group": "2. Daily Levels", "order": 8, "label": "Levels File or Link (supports {root})", "type": "str",
+     "description": "A levels link (http or https) or a levels file. {root} becomes the symbol's root; "
+                    "micros use the parent (MES reads ES). A Windows path under Documents reads this server's Documents folder "
+                    "(any path when the server runs on Windows without Docker). "
+                    "Blank: Documents\\Tatanka\\levels\\{root}.txt if it exists, else the symbol's pasted line (Plan tab)"
+                    "."},
+    {"name": "tzguard_enable", "group": "1. Global Settings", "order": 7, "label": "Warn if Session Times Were Changed", "type": "bool",
+     "description": "All session fields are Central exchange time, written for ES/NQ's 08:30-15:00: on another instrument "
+                    "they move with that one's regular hours (CL's IB 08:30-09:30 is 08:00-09:00). Shows a warning on the "
+                    "chart when any differs from its default."},
+]
+SCHEMA = sorted([x for x in SCHEMA if x["name"] != "lvl_text"] + _EXTRA,
+                key=lambda x: (int(x["group"].split(".")[0]), x["order"]))
+SCHEMA_BY_NAME = {x["name"]: x for x in SCHEMA}
+DEFAULTS = {**amt.DEFAULTS, **EXTRA_DEFAULTS}
+# Always the shared settings, whatever a chart has: where the daily levels come from, and the alerts (one runner per
+# symbol fires them, on the shared settings): the Alerts group, each group's own alert switches (Alert 80% Rule
+# Confirmed, Enable Level Alerts, Alert Window...), so turning one off on any chart turns it off, and the level zones'
+# width, which Zone Entry alerts use (so a chart's zones are the ones that alert).
+ZONE_WIDTH = {"lvl_zone_mode", "lvl_zone_atr_pct", "lvl_zoneWidthTicks"}
+SHARED = frozenset({"LevelsFile"} | ZONE_WIDTH
+                   | {x["name"] for x in SCHEMA if x["group"].startswith("18.") or "alert" in x["name"].lower()})
+# The alerts follow their alert switches only: what each needs on for the engine to work out what it alerts on (the
+# group's Enable, nPOCs' kinds). A chart's own Enable only shows or hides the group there; the alert runner has every
+# one that an alert switch on needs.
+ALERT_NEEDS = {
+    "ib_alert_ibh": ("ib_enable",), "ib_alert_ibl": ("ib_enable",), "amt_alert_ovn": ("amt_enable",),
+    "vwap_alert": ("vwap_enable",), "cc_alert_80": ("cc_enable",), "cc_alert_va": ("cc_enable",),
+    "inv_alert": ("inv_enable",), "spike_alert": ("showSpike",),
+    "npoc_alert": ("npoc_enable", "npoc_d_show", "npoc_w_show", "npoc_m_show"),
+}
+
+
+def alert_overrides(overrides: dict) -> dict:
+    """The alert runner's settings: the shared ones, with what each alert switch that is on needs turned on."""
+    on = {k for alert, needs in ALERT_NEEDS.items() if overrides.get(alert, DEFAULTS[alert]) for k in needs}
+    out = {**overrides, **{k: True for k in on}}
+    return {k: v for k, v in out.items() if v != DEFAULTS[k]}   # what differs from the defaults, as clean_settings keeps
+
+
+def engine_settings(overrides: dict) -> amt.Settings:
+    """The engine's Settings: the hub's own keys left out, and no pasted levels (they arrive per symbol)."""
+    return amt.Settings({k: v for k, v in overrides.items() if k not in EXTRA_DEFAULTS and k != "lvl_text"})
+
+
+def clean_settings(overrides: dict) -> dict:
+    """Checks settings as the Toolkit does (types, choices, bounds, finite numbers, CT sessions, then the three
+    cross-field rules of ValidateSettings) and keeps only those that differ from the NinjaTrader defaults."""
+    out = {}
+    for k, v in overrides.items():
+        spec = SCHEMA_BY_NAME.get(k)
+        if spec is None:
+            raise ValueError(f"unknown AMT setting {k}")
+        label, t = spec["label"], spec["type"]
+        number = isinstance(v, (int, float)) and not isinstance(v, bool)
+        if not {"bool": isinstance(v, bool), "int": number and v == int(v), "color": number and v == int(v),
+                "float": number, "str": isinstance(v, str) and len(v) <= 20_000}[t]:
+            raise ValueError(f"{label}: expected {'a whole number' if t == 'int' else t}")
+        if t in ("int", "color"):
+            v = int(v)
+        elif t == "float":
+            v = float(v)
+            if not math.isfinite(v):
+                raise ValueError(f"{label} must be finite.")
+        if t == "color" and not 0 <= v <= 0xFFFFFFFF:
+            raise ValueError(f"{label}: not a color")
+        if spec.get("min") is not None and v < spec["min"]:
+            raise ValueError(f"{label} is below its minimum ({spec['min']}).")
+        if spec.get("max") is not None and v > spec["max"]:
+            raise ValueError(f"{label} exceeds its maximum ({spec['max']}).")
+        if "choices" in spec and v not in spec["choices"]:
+            raise ValueError(f"Invalid {label}: {v}")
+        if spec.get("session"):
+            try:
+                amt.in_session(datetime(2026, 1, 5), v)
+            except ValueError:
+                raise ValueError(f"{label}: use HHmm-HHmm in CT, optionally :days (1 = Sunday), e.g. 1700-0830:123456")
+        if v != DEFAULTS[k]:
+            out[k] = v
+    s = engine_settings(out)
+    if s.daily_atr_length < 1 or s.sp_tpo_minutes < 1 or s.mvp_sess_dur <= 0 or s.mvp_smooth_len < 1 or s.sp_max_days < 1:
+        raise ValueError("Periods and history lengths must be positive.")
+    if not 0 < s.mvp_val_pct <= 100:
+        raise ValueError("Profile value area must be between 0 and 100 percent.")
+    if not re.fullmatch(r"\d+", s.mvp_calc_tf.strip()) or not 1 <= int(s.mvp_calc_tf) <= 30:
+        raise ValueError("Calc Precision must be a whole number of minutes from 1 to 30.")
+    return out
+
+
+class AmtEntry:
+    def __init__(self, runner: AmtRunner):
+        self.runner = runner
+        self.ready = asyncio.Event()
+        self.pending: list[Bar] = []
+        self.subs: set = set()        # (client, sid)
+        self.error: str | None = None
+        self.dropped = False          # new shared settings or a gap fill let go of it (so its failure is no chart's)
+        self.idle_since = time.monotonic()
+        self.sig = None
+
+
+def _load_history(db_path, runner: AmtRunner, symbol: str, split: int):
+    for b in iter_bars_1m(db_path, symbol, split - HISTORY_DAYS * 86_400_000, split):
+        runner.add_minute(b)
+    runner.commit_ready()
+
+
+def chart_minutes(spec_kind: str, spec_seconds: int) -> int:
+    """The Toolkit runs on 1-30 minute bars: minute charts use their own size, longer time charts 30,
+    tick/volume/range charts 5."""
+    if spec_kind != "time":
+        return 5
+    return max(1, min(30, spec_seconds // 60))
+
+
+class AmtHub:
+    def __init__(self, market):
+        self.m = market
+        self.entries: dict[tuple[str, int], AmtEntry] = {}
+        self._set({k: v for k, v in (market.store.get_setting("amt_settings", {}) or {}).items()
+                   if k in SCHEMA_BY_NAME})   # a pasted line from before is per symbol now
+        self.alert_cfg: dict = market.store.get_setting("amt_alerts", {})   # symbol -> {"on"}
+        self.alert_times: dict[str, deque] = {}
+        self.cap_warned: dict[str, bool] = {}
+
+    # --- settings ---------------------------------------------------------------------------------
+    def settings(self) -> amt.Settings:
+        return self._settings
+
+    def _set(self, overrides: dict):
+        self.overrides, self._settings = overrides, engine_settings(overrides)
+        # the alert runner's (alert_overrides): the shared runner's when they are the same, else a runner of their own
+        self._alert_ov = alert_overrides(overrides)
+        self._alert_sig = "" if self._alert_ov == overrides else json.dumps(self._alert_ov, sort_keys=True, separators=(",", ":"))
+
+    def alert_key(self, sym: str) -> tuple:
+        """The key of the runner that alerts for `sym`."""
+        return (sym, ALERT_MINUTES, self._alert_sig) if self._alert_sig else (sym, ALERT_MINUTES)
+
+    def chart_settings(self, overrides: dict | None) -> tuple[str, dict]:
+        """A chart's own settings, cleaned (ValueError if bad), and its runners' key: "" when they are the shared
+        ones. The alerts and the levels file are always the shared ones."""
+        if overrides is None:
+            return "", self.overrides
+        if not isinstance(overrides, dict):
+            raise ValueError("AMT settings must be an object")
+        mine = clean_settings({**{k: v for k, v in overrides.items() if k not in SHARED},
+                               **{k: v for k, v in self.overrides.items() if k in SHARED}})
+        return ("" if mine == self.overrides else json.dumps(mine, sort_keys=True, separators=(",", ":"))), mine
+
+    def settings_for(self, sym: str, overrides: dict | None = None) -> amt.Settings:
+        """The settings as one symbol runs them (the shared ones, or a chart's own). They are written for ES's regular
+        hours (08:30-15:00 CT, as the NinjaTrader defaults): another instrument's session fields move to its own (CL's
+        IB 08:00-09:00)."""
+        ov = self.overrides if overrides is None else overrides
+        move = sessions.rth_mover(self.m.instruments[sym].rth)
+        if not move:
+            return self._settings if overrides is None else engine_settings(ov)
+        eff = {**DEFAULTS, **ov}
+        moved = {k: sessions.move_session(eff[k], move) for k, spec in SCHEMA_BY_NAME.items() if spec.get("session")}
+        for h, m in (("vwap_start_h", "vwap_start_m"), ("vwap_end_h", "vwap_end_m"), ("inv_end_h", "inv_end_m")):
+            t = move(eff[h] * 60 + eff[m])
+            moved[h], moved[m] = t // 60, t % 60
+        return engine_settings({**ov, **moved})
+
+    def settings_value(self, name: str):
+        return self.overrides.get(name, DEFAULTS[name])
+
+    def set_overrides(self, overrides: dict):
+        overrides = clean_settings(overrides)        # raises ValueError on bad input
+        self._set(overrides)
+        self.m.store.set_setting("amt_settings", overrides)
+        for e in self.entries.values():              # rebuild everything with the new settings
+            e.dropped = True
+            for client, sid in list(e.subs):
+                client.amt_entries.pop(sid, None)
+                client.put({"type": "amt_reset", "id": sid})
+        self.entries.clear()
+        self.ensure_alert_runners()
+
+    def reload(self, sym: str):
+        """History of `sym` changed: its engines load again (charts are told to ask anew)."""
+        for key, e in list(self.entries.items()):
+            if key[0] != sym:
+                continue
+            e.dropped = True
+            for client, sid in list(e.subs):
+                client.amt_entries.pop(sid, None)
+                client.put({"type": "amt_reset", "id": sid})
+            del self.entries[key]
+        self.ensure_alert_runners()
+
+    def merge_overrides(self, changes: dict):
+        """Only what changed (a setting back at its default goes back to it), over the shared settings as they are now."""
+        self.set_overrides({**self.overrides, **changes})
+
+    def set_alerts(self, symbol: str, on: bool):
+        """Per symbol on/off; how levels alert (Cross, Zone Entry, Both) is the Level alert mode setting."""
+        was = self.alerting(symbol)
+        self.alert_cfg[symbol] = {"on": bool(on)}
+        self.m.store.set_setting("amt_alerts", self.alert_cfg)
+        e = self.entries.get(self.alert_key(symbol))
+        if on and not was and e and e.ready.is_set() and not e.error:
+            # turned back on, they start afresh, as a load does: nothing from while they were off is sent (the bars
+            # it took meanwhile and the forming one count as sent, and the levels are watched from the next price on)
+            r = e.runner
+            r.fresh(r.commit_ready() + r.preview()[1])
+            r.tracker.Reset()
+        self.ensure_alert_runners()
+
+    def alerting(self, symbol: str) -> dict | None:
+        cfg = self.alert_cfg.get(symbol)
+        return cfg if cfg and cfg.get("on") else None
+
+    def ensure_alert_runners(self):
+        for sym in self.m.instruments:
+            if self.alerting(sym) and self.alert_key(sym) not in self.entries:
+                asyncio.get_running_loop().create_task(self._safe_entry(sym))
+
+    async def _safe_entry(self, sym):
+        try:
+            await self.entry(sym, ALERT_MINUTES, self._alert_sig, self._alert_ov)
+        except Exception:
+            log.exception("AMT runner %s %sm failed", sym, ALERT_MINUTES)
+
+    # --- runners --------------------------------------------------------------------------------------
+    def _levels(self, runner: AmtRunner, sym: str):
+        """The symbol's daily levels by NinjaTrader's order: levels file or link, else the pasted line (daily_levels.py)."""
+        try:
+            levels, date, _src = self.m.daily.current(sym)
+        except ValueError as e:
+            runner.levels_error = f"Pasted levels rejected; no daily levels loaded. {e}"
+            runner.set_level_list([], None, None)
+            return
+        tk = self.m.last_tick.get(sym)
+        runner.set_level_list(levels, date, tk.price if tk else None)
+
+    async def entry(self, sym: str, minutes: int, sig: str = "", overrides: dict | None = None,
+                    raise_error: bool = True) -> AmtEntry:
+        """The runner for a symbol, its minutes and a chart's own settings (sig and overrides from chart_settings;
+        none: the shared settings). A load that failed raises its error, or comes back with it (raise_error False)."""
+        key = (sym, minutes, sig) if sig else (sym, minutes)
+        e = self.entries.get(key)
+        if e is None:
+            inst = self.m.instruments[sym]
+            move = sessions.rth_mover(inst.rth)
+            runner = AmtRunner(sym, inst.tick_size, minutes, self.settings_for(sym, overrides if sig else None), calendar=inst.calendar,
+                               rth_session=sessions.move_session("0830-1500", move))
+            self._levels(runner, sym)
+            e = self.entries[key] = AmtEntry(runner)
+            # same cutoff scheme as chart history: stored minutes before the current one, live after
+            self.m.flush_for_read()
+            split = int(time.time() * 1000) // 60_000 * 60_000
+            try:
+                t0 = time.perf_counter()
+                e.runner = runner = await workers.run("study", workers.load_amt, self.m.store.path, runner, sym, split)
+                self._levels(runner, sym)   # levels that changed while it loaded
+                for b in list(self.m.m1[sym].bars):
+                    if b.t >= split:
+                        runner.add_minute(b)
+                for b in e.pending:
+                    runner.add_minute(b)
+                e.pending = []
+                runner.commit_ready()
+                # the forming bar's notices count as sent: history never alerts, and the runner this one replaces (a
+                # restart, a gap fill, new settings) may have sent them already
+                runner.fresh(runner.preview()[1])
+                log.info("AMT %s %sm ready in %.1fs", sym, minutes, time.perf_counter() - t0)
+            except Exception as ex:
+                log.exception("AMT history failed for %s %sm", sym, minutes)
+                e.error = str(ex)
+                if self.entries.get(key) is e:   # not a runner that replaced it while this one loaded
+                    del self.entries[key]
+            finally:
+                e.ready.set()
+        await e.ready.wait()
+        if e.error and raise_error:
+            raise RuntimeError(e.error)
+        return e
+
+    # --- hooks from Market ---------------------------------------------------------------------------
+    def on_minute(self, sym: str, b: Bar):
+        for key, e in self.entries.items():
+            if key[0] == sym:
+                if e.ready.is_set():
+                    e.runner.add_minute(b)
+                else:
+                    e.pending.append(b)
+
+    def on_live_tick(self, tk: Tick):
+        cfg = self.alerting(tk.symbol)
+        if not cfg:
+            return
+        e = self.entries.get(self.alert_key(tk.symbol))
+        if e and e.ready.is_set() and not e.error:
+            self._notify(tk.symbol, e.runner.fresh(e.runner.observe(tk.price, self._settings.LevelAlertMode)), tk.price)
+
+    def levels_changed(self, sym: str):
+        for key, e in self.entries.items():
+            if key[0] == sym and e.ready.is_set():
+                self._levels(e.runner, sym)
+                e.sig = None
+
+    # --- chart subscriptions --------------------------------------------------------------------------
+    async def subscribe(self, client, sid: int, sym: str, minutes: int, overrides: dict | None = None):
+        """A chart showing the Toolkit, on its own settings (overrides: all that differ from NinjaTrader's defaults;
+        None: the shared ones)."""
+        if sym not in self.m.instruments:
+            raise ValueError(f"unknown symbol {sym}")
+        minutes = max(1, min(30, int(minutes)))
+        asked = client.amt_asked[sid] = object()   # a newer request, or amt_off, while this one loads: this one is dropped
+        sig, mine = self.chart_settings(overrides)
+        e = await self.entry(sym, minutes, sig, mine, raise_error=False)
+        if e.error and not e.dropped:
+            raise RuntimeError(e.error)
+        if client.closed or client.amt_asked.get(sid) is not asked or not (sid in client.subs or sid in client.loading):
+            return
+        # New shared settings or a gap fill dropped the runner while it loaded (loaded or failed), before this chart was
+        # on it to be told: told now, as the charts on it were, it asks again with the shared settings as they are now
+        # (its own ones came on top of the old shared ones).
+        if self.entries.get((sym, minutes, sig) if sig else (sym, minutes)) is not e:
+            client.put({"type": "amt_reset", "id": sid})
+            return
+        self.m.note_recent("amt", [sym, minutes])
+        self.unsubscribe(client, sid)
+        e.subs.add((client, sid))
+        client.amt_entries[sid] = e
+        client.put(self._message(e, client, sid, full=True))
+
+    def unsubscribe(self, client, sid: int):
+        client.amt_asked.pop(sid, None)
+        e = client.amt_entries.pop(sid, None)
+        client.amt_state.pop(sid, None)
+        if e:
+            e.subs.discard((client, sid))
+            if not e.subs:
+                e.idle_since = time.monotonic()
+
+    def _message(self, e: AmtEntry, client, sid: int, full: bool) -> dict:
+        """Lines and dashboard every update; the developing profile at most every PROFILE_EVERY_S; past
+        profiles, past days' lines and the 80% fill runs only when they change."""
+        r = e.runner
+        now = time.monotonic()
+        st = client.amt_state.get(sid) or {"past": -1, "hist": -1, "samples": -1, "profile_at": 0.0}
+        profile = full or now - st["profile_at"] >= PROFILE_EVERY_S
+        data = r.payload(full or st["past"] != r.past_rev, full or st["hist"] != r.history_rev,
+                         full or st["samples"] != r.samples_rev, profile, None if full else st.get("vwap"))
+        sent = {}
+        for k in ("lines", "zones", "dash", "warning"):     # unchanged parts are not resent
+            h = hash(json.dumps(data.get(k), separators=(",", ":")))
+            sent[k] = h
+            if not full and st.get(k) == h:
+                data.pop(k, None)
+        if data.get("ready"):
+            client.amt_state[sid] = {"past": r.past_rev, "hist": r.history_rev, "samples": r.samples_rev, "vwap": r.vwap_total,
+                                     "profile_at": now if profile else st["profile_at"], **sent}
+        else:   # no bars yet, so nothing of them was sent: the first ready message brings it all (the style too)
+            client.amt_state.pop(sid, None)
+        return {"type": "amt", "id": sid, "symbol": r.symbol, "minutes": r.minutes, "full": full, "data": data}
+
+    # --- alerts ------------------------------------------------------------------------------------------
+    def _notify(self, sym: str, notices: list, price: float):
+        if not notices or filling(self.m, sym):   # counted as sent all the same (fresh)
+            return
+        S = self.settings()
+        times = self.alert_times.setdefault(sym, deque())
+        now = int(time.time() * 1000)
+        inst = self.m.instruments[sym]
+        for n in notices:
+            while times and times[0] < now - S.alertcap_window_min * 60_000:
+                times.popleft()
+            if len(times) < S.alertcap_max:
+                self.cap_warned[sym] = False
+            if S.alertcap_enable and len(times) >= S.alertcap_max:
+                if not self.cap_warned.get(sym):
+                    self.cap_warned[sym] = True
+                    self._emit(sym, now, price, f"[{sym}] AMT alert storm cap reached ({S.alertcap_max}/"
+                                                f"{S.alertcap_window_min}m). Further alerts suppressed.")
+                continue
+            if S.alertcap_enable:
+                times.append(now)
+            self._emit(sym, now, price, f"[{sym}] {n.Text} | close {amt.price_str(price, sym, inst.tick_size)}")
+
+    def _emit(self, sym, now, price, text):
+        ev = {"alert_id": None, "symbol": sym, "ts": now, "price": price, "message": text}
+        try:
+            ev["id"] = self.m.store.add_event(ev)
+        except sqlite3.Error as e:   # the database can't be written (a full disk, another program's lock): sent all the same
+            log.warning("AMT alert for %s not saved: %s", sym, e)
+            ev["id"] = None
+        self.m.broadcast({"type": "alert", "event": ev})
+        asyncio.get_running_loop().create_task(self.m._deliver(ev))
+
+    # --- the once-a-second loop ---------------------------------------------------------------------------
+    async def loop(self):
+        while True:
+            await asyncio.sleep(STEP_S)
+            try:
+                self.step()
+            except Exception:
+                log.exception("AMT step failed")
+
+    def step(self):
+        now = int(time.time() * 1000)
+        idle = sorted((e.idle_since, key) for key, e in self.entries.items()
+                      if e.ready.is_set() and not e.subs and not (key == self.alert_key(key[0]) and self.alerting(key[0])))
+        for i, (since, key) in enumerate(idle):
+            if time.monotonic() - since > IDLE_S or i < len(idle) - IDLE_MAX:
+                del self.entries[key]
+        for key, e in list(self.entries.items()):
+            if not e.ready.is_set() or e.error:
+                continue
+            sym = key[0]
+            cfg = self.alerting(sym) if key == self.alert_key(sym) else None
+            if not e.subs and not cfg:
+                continue
+            r = e.runner
+            last = r.chart.bars[r.chart.keys[-1]][-1] if r.chart.keys else None
+            sig = (len(r.chart.keys), r.next_commit, last.t if last else 0, last.c if last else 0,
+                   last.v if last else 0, r.levels_error, id(r.levels))
+            if sig == e.sig:
+                continue
+            e.sig = sig
+            notices = r.commit_ready()
+            frame, pn = r.preview()
+            tk = self.m.last_tick.get(sym)
+            if cfg and frame is not None and tk and now - tk.ts < LIVE_BAR_AGE_MS:   # live data only
+                self._notify(sym, r.fresh(notices + pn), tk.price)
+            for client, sid in list(e.subs):
+                client.put(self._message(e, client, sid, full=False))
+
+    def health(self) -> dict:
+        name = lambda k: f"{k[0]} {k[1]}m" + (f" own {hashlib.sha1(k[2].encode()).hexdigest()[:6]}" if len(k) > 2 else "")   # noqa: E731
+        return {name(k): {"subs": len(e.subs), "ready": e.ready.is_set(), "error": e.error,
+                          "alerts": bool(self.alerting(k[0])) and k == self.alert_key(k[0])}
+                for k, e in self.entries.items()}

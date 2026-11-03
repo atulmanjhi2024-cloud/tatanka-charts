@@ -1,0 +1,12 @@
+.env
+# docker-compose.yml's host folders when .env names none (the backups hold your keys)
+backups/
+import/
+data/
+__pycache__/
+.venv/
+.pytest_cache/
+# your own feed plugins (docs/FEEDS.md): kept out of git, so pulls never touch them
+feeds/*
+!feeds/README.md
+!feeds/my_feed.py.example

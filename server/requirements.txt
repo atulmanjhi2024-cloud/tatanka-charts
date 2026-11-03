@@ -1,0 +1,9 @@
+fastapi==0.143.3
+starlette>=1.1.0   # FastAPI's web parts: older ones (pip keeps one already installed) let an odd Host past the login
+uvicorn[standard]==0.53.0
+httpx==0.28.1
+cryptography==50.0.1   # app notifications: Web Push encryption and signing
+tzdata
+ib_async==2.1.0
+pyarrow==26.0.0   # backfill: the NinjaTrader export parquet; databento: CSV and zstd (wheels for Python 3.11-3.15)
+databento-dbn==0.72.0; python_version < "3.15"   # databento: DBN files (0.72.0 says Python up to 3.14: docs/DATA.md)

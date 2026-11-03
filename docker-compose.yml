@@ -1,0 +1,43 @@
+# Tatanka Charts. Bound to localhost only; reach it from the phone through `tailscale serve` (docs/PHONE.md).
+# The fixed project name keeps the database volume (charting_chart-data) whatever the folder is called.
+name: charting
+services:
+  chart:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+      args:
+        CHART_EXTRA_PIP: ${CHART_EXTRA_PIP:-}   # Python packages feed plugins need (docs/FEEDS.md), e.g. databento
+        CHART_COMMIT: ${CHART_COMMIT:-}         # the commit it is built from (update.cmd sets it): Connections > Updates
+    container_name: tatanka-charts
+    restart: unless-stopped
+    logging:                                  # kept for good otherwise (a line per request): 3 files of 10 MB
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    ports:
+      - "127.0.0.1:${CHART_PORT:-8800}:8800"
+      - "127.0.0.1:8801:8801"                 # NinjaTrader add-on feed
+      - "127.0.0.1:8802:8802"                 # feed plugins: Your own program (TCP lines), docs/FEEDS.md
+      - "127.0.0.1:8803:8803"                 # feed plugins: Your own program (quotes)
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      IBKR_HOST: ${IBKR_HOST:-host.docker.internal}
+      CHART_NT_HOST: 0.0.0.0                  # reachable through the localhost-only port above
+      CHART_BACKUP_DIR: /backups
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # reach IB Gateway on the host
+    volumes:
+      - chart-data:/data
+      - ./feeds:/feeds:ro                     # your feed plugins (docs/FEEDS.md)
+      # The folders on the PC (.env's Host folders); blank, these ones in this folder (git ignores them)
+      - ${BACKUP_DIR:-./backups}:/backups                      # daily backups (alerts, drawings, settings, keys)
+      - ${DOCUMENTS_DIR:-./import/documents}:/import/documents:ro   # your Documents: levels files (Tatanka\levels), backfill
+      - ${DATABENTO_DIR:-./import/databento}:/import/databento:ro   # chartsrv.databento: Databento downloads
+      - ${DOWNLOADS_DIR:-./import/downloads}:/import/downloads:ro   # chartsrv.databento: GLBX-*.zip and exports
+
+volumes:
+  chart-data:

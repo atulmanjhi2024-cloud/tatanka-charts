@@ -1,0 +1,4 @@
+{
+  "_comment": "Watchlist quote key -> Yahoo Finance ticker, for symbols the built-in map (server/chartsrv/feeds/yahoo.py) gets wrong or lacks. Keys are TradingView tickers, or a future as FDAX1! (its root alone, FDAX, works for the future too). null stops Yahoo quoting it. Futures without a Yahoo twin are left out on purpose; e.g. \"FDAX\": \"^GDAXI\" would show the DAX index there instead. Restart the server after editing.",
+  "symbols": {}
+}

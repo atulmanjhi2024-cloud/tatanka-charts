@@ -1,0 +1,61 @@
+{
+  "_comment": "CME Group futures that trade the Globex day (17:00-16:00 CT), with their specs, for Connections > App > Instruments > + Instrument. Each row: symbol (NinjaTrader's root), name, tick size, point value ($ per 1.00 move), a rough price for the simulator, then optional overrides (rth). rth: the regular (pit) hours in CT. calendar: the holiday group in holidays.json (rates, currencies and crypto use the equity one, the nearest). Grains and livestock are left out: their hours differ.",
+  "groups": [
+    {"name": "Equity index", "calendar": "equity", "rth": ["08:30", "15:00"], "items": [
+      ["ES",  "E-mini S&P 500",            0.25, 50,   6900],
+      ["MES", "Micro E-mini S&P 500",      0.25, 5,    6900],
+      ["NQ",  "E-mini Nasdaq-100",         0.25, 20,   25000],
+      ["MNQ", "Micro E-mini Nasdaq-100",   0.25, 2,    25000],
+      ["RTY", "E-mini Russell 2000",       0.1,  50,   2400],
+      ["M2K", "Micro E-mini Russell 2000", 0.1,  5,    2400],
+      ["YM",  "E-mini Dow ($5)",           1,    5,    46000],
+      ["MYM", "Micro E-mini Dow",          1,    0.5,  46000],
+      ["EMD", "E-mini S&P MidCap 400",     0.1,  100,  3200],
+      ["NKD", "Nikkei 225 (USD)",          5,    5,    48000]
+    ]},
+    {"name": "Energy", "calendar": "energy", "rth": ["08:00", "13:30"], "items": [
+      ["CL",  "Crude Oil",                 0.01,   1000,  65],
+      ["MCL", "Micro WTI Crude Oil",       0.01,   100,   65],
+      ["QM",  "E-mini Crude Oil",          0.025,  500,   65],
+      ["NG",  "Natural Gas",               0.001,  10000, 3.5],
+      ["RB",  "RBOB Gasoline",             0.0001, 42000, 2.0],
+      ["HO",  "NY Harbor ULSD (Heating Oil)", 0.0001, 42000, 2.3]
+    ]},
+    {"name": "Metals", "calendar": "metals", "rth": ["07:20", "12:30"], "items": [
+      ["GC",  "Gold",                      0.1,    100,   3500],
+      ["MGC", "Micro Gold",                0.1,    10,    3500],
+      ["SI",  "Silver",                    0.005,  5000,  40,   {"rth": ["07:25", "12:25"]}],
+      ["SIL", "Micro Silver",              0.005,  1000,  40,   {"rth": ["07:25", "12:25"]}],
+      ["HG",  "Copper",                    0.0005, 25000, 4.8,  {"rth": ["07:10", "12:00"]}],
+      ["MHG", "Micro Copper",              0.0005, 2500,  4.8,  {"rth": ["07:10", "12:00"]}],
+      ["PL",  "Platinum",                  0.1,    50,    1400, {"rth": ["07:20", "12:05"]}],
+      ["PA",  "Palladium",                 0.5,    100,   1200, {"rth": ["07:30", "12:00"]}]
+    ]},
+    {"name": "Interest rates", "calendar": "equity", "rth": ["07:20", "14:00"], "items": [
+      ["ZT",  "2-Year T-Note",             0.00390625, 2000, 104],
+      ["ZF",  "5-Year T-Note",             0.0078125,  1000, 108],
+      ["ZN",  "10-Year T-Note",            0.015625,   1000, 111],
+      ["TN",  "Ultra 10-Year T-Note",      0.015625,   1000, 115],
+      ["ZB",  "30-Year T-Bond",            0.03125,    1000, 115],
+      ["UB",  "Ultra T-Bond",              0.03125,    1000, 120],
+      ["SR3", "Three-Month SOFR",          0.0025,     2500, 96.5]
+    ]},
+    {"name": "Currencies", "calendar": "equity", "rth": ["07:20", "14:00"], "items": [
+      ["6E",  "Euro FX",                   0.00005,   125000,   1.16],
+      ["M6E", "Micro EUR/USD",             0.0001,    12500,    1.16],
+      ["6B",  "British Pound",             0.0001,    62500,    1.33],
+      ["6J",  "Japanese Yen",              0.0000005, 12500000, 0.0067],
+      ["6A",  "Australian Dollar",         0.00005,   100000,   0.65],
+      ["6C",  "Canadian Dollar",           0.00005,   100000,   0.72],
+      ["6S",  "Swiss Franc",               0.00005,   125000,   1.25],
+      ["6N",  "New Zealand Dollar",        0.00005,   100000,   0.58],
+      ["6M",  "Mexican Peso",              0.00001,   500000,   0.054]
+    ]},
+    {"name": "Crypto", "calendar": "equity", "rth": null, "items": [
+      ["BTC", "Bitcoin",                   5,   5,   110000],
+      ["MBT", "Micro Bitcoin",             5,   0.1, 110000],
+      ["ETH", "Ether",                     0.5, 50,  4000],
+      ["MET", "Micro Ether",               0.5, 0.1, 4000]
+    ]}
+  ]
+}

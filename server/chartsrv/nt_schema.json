@@ -1,0 +1,2011 @@
+{
+ "tpo": {
+  "title": "TPO Profile",
+  "version": "1.0.0",
+  "settings": [
+   {
+    "name": "FilterByTime",
+    "group": "Session",
+    "order": 1,
+    "label": "Filter by Time? (RTH Only)",
+    "type": "bool",
+    "default": true
+   },
+   {
+    "name": "SessionTime",
+    "group": "Session",
+    "order": 2,
+    "label": "Session Time",
+    "type": "str",
+    "description": "HHmm-HHmm in CT (Chicago time, as the chart's Trading Hours template here), e.g. 0830-1500 Written for ES/NQ's 08:30-15:00 CT: on another instrument it moves with that one's regular hours (CL's 08:30 is 08:00, its 15:00 13:30).",
+    "default": "0830-1500"
+   },
+   {
+    "name": "BlockMinutes",
+    "group": "Session",
+    "order": 3,
+    "label": "Block Size (Minutes)",
+    "type": "int",
+    "min": 5,
+    "max": 240,
+    "default": 30
+   },
+   {
+    "name": "AutoRowHeight",
+    "group": "Session",
+    "order": 4,
+    "label": "Auto Row Height",
+    "type": "bool",
+    "default": true
+   },
+   {
+    "name": "TargetRows",
+    "group": "Session",
+    "order": 5,
+    "label": "Target Rows Per Day (Auto)",
+    "type": "int",
+    "min": 15,
+    "max": 100,
+    "default": 80
+   },
+   {
+    "name": "RowHeightTicks",
+    "group": "Session",
+    "order": 6,
+    "label": "Row Height (Ticks, Manual)",
+    "type": "int",
+    "min": 1,
+    "max": 100,
+    "default": 8
+   },
+   {
+    "name": "LetterDays",
+    "group": "History",
+    "order": 1,
+    "label": "Days with Letter Detail",
+    "type": "int",
+    "min": 1,
+    "max": 5,
+    "default": 3
+   },
+   {
+    "name": "ShowPolyline",
+    "group": "History",
+    "order": 2,
+    "label": "Show Polyline Outlines (Older Days)",
+    "type": "bool",
+    "default": true
+   },
+   {
+    "name": "PolylineDays",
+    "group": "History",
+    "order": 3,
+    "label": "Max Polyline Days",
+    "type": "int",
+    "min": 1,
+    "max": 50,
+    "default": 15
+   },
+   {
+    "name": "BoxTransparency",
+    "group": "Visuals",
+    "order": 1,
+    "label": "Box Transparency (0-100)",
+    "type": "int",
+    "min": 0,
+    "max": 100,
+    "default": 0
+   },
+   {
+    "name": "StartColor",
+    "group": "Visuals",
+    "order": 2,
+    "label": "Start Color (Open)",
+    "type": "color",
+    "default": "#0000ff"
+   },
+   {
+    "name": "EndColor",
+    "group": "Visuals",
+    "order": 3,
+    "label": "End Color (Close)",
+    "type": "color",
+    "default": "#ff00ff"
+   },
+   {
+    "name": "TextColor",
+    "group": "Visuals",
+    "order": 4,
+    "label": "Text Color",
+    "type": "color",
+    "default": "#ffffff"
+   },
+   {
+    "name": "PocColor",
+    "group": "Visuals",
+    "order": 5,
+    "label": "POC Color",
+    "type": "color",
+    "default": "#ffff00"
+   },
+   {
+    "name": "PolyColor",
+    "group": "Visuals",
+    "order": 6,
+    "label": "Polyline Fill Color",
+    "type": "color",
+    "default": "#808080"
+   },
+   {
+    "name": "XOffsetBars",
+    "group": "Visuals",
+    "order": 7,
+    "label": "X Offset (Bars)",
+    "type": "int",
+    "default": 0
+   },
+   {
+    "name": "ShowLive",
+    "group": "Visuals",
+    "order": 8,
+    "label": "Show Developing (Current Day)",
+    "type": "bool",
+    "default": false
+   },
+   {
+    "name": "ShowValueArea",
+    "group": "Visuals",
+    "order": 9,
+    "label": "Show Value Area (VAH/VAL)",
+    "type": "bool",
+    "default": false
+   },
+   {
+    "name": "VaColor",
+    "group": "Visuals",
+    "order": 10,
+    "label": "Value Area Color",
+    "type": "color",
+    "default": "#008080"
+   },
+   {
+    "name": "ExtendPoc",
+    "group": "Visuals",
+    "order": 11,
+    "label": "Extend POC Through Next RTH Session",
+    "type": "bool",
+    "default": false
+   }
+  ]
+ },
+ "gap": {
+  "title": "Tatanka Gap Analysis",
+  "version": "1.0.0",
+  "settings": [
+   {
+    "name": "EnabledAnalysis",
+    "group": "01. Gap Settings",
+    "order": 0,
+    "label": "Enable gap analysis",
+    "type": "bool",
+    "default": true
+   },
+   {
+    "name": "RthStart",
+    "group": "01. Gap Settings",
+    "order": 1,
+    "label": "RTH start (Chicago HHmmss)",
+    "type": "int",
+    "description": "Chicago time, including daylight saving time. Default 08:30:00. Written for ES/NQ's 08:30-15:00 CT: on another instrument it moves with that one's regular hours (CL's 08:30 is 08:00, its 15:00 13:30).",
+    "min": 0,
+    "max": 235959,
+    "default": 83000
+   },
+   {
+    "name": "RthEnd",
+    "group": "01. Gap Settings",
+    "order": 2,
+    "label": "RTH end (Chicago HHmmss)",
+    "type": "int",
+    "description": "Default 15:00:00. Reference price is the last loaded RTH chart-bar close. Written for ES/NQ's 08:30-15:00 CT: on another instrument it moves with that one's regular hours (CL's 08:30 is 08:00, its 15:00 13:30).",
+    "min": 0,
+    "max": 235959,
+    "default": 150000
+   },
+   {
+    "name": "MinimumGapPoints",
+    "group": "01. Gap Settings",
+    "order": 3,
+    "label": "Minimum gap size (points)",
+    "type": "float",
+    "min": 0.0,
+    "max": null,
+    "default": 0.0
+   },
+   {
+    "name": "MaximumGapsToShow",
+    "group": "01. Gap Settings",
+    "order": 4,
+    "label": "Maximum visible gaps (0 = all)",
+    "type": "int",
+    "description": "Zero displays all eligible gaps intersecting the visible time range. All loaded gaps remain tracked regardless of this display setting.",
+    "min": 0,
+    "max": null,
+    "default": 0
+   },
+   {
+    "name": "ExtendUnfilledRight",
+    "group": "01. Gap Settings",
+    "order": 5,
+    "label": "Extend unfilled gaps right",
+    "type": "bool",
+    "default": true
+   },
+   {
+    "name": "ShowGapZones",
+    "group": "02. Visual Settings",
+    "order": 0,
+    "label": "Show gap shading",
+    "type": "bool",
+    "default": true
+   },
+   {
+    "name": "ShrinkPartiallyFilledZones",
+    "group": "02. Visual Settings",
+    "order": 1,
+    "label": "Shrink partially filled zones",
+    "type": "bool",
+    "description": "Wicks reduce the unfilled area. Filled portions never grow back when price retreats.",
+    "default": true
+   },
+   {
+    "name": "ShowTouchedArea",
+    "group": "02. Visual Settings",
+    "order": 2,
+    "label": "Show partially filled area",
+    "type": "bool",
+    "description": "Shade the touched portion separately. Applies when shrinking is enabled.",
+    "default": true
+   },
+   {
+    "name": "HideFilledGaps",
+    "group": "02. Visual Settings",
+    "order": 3,
+    "label": "Hide fully filled gaps",
+    "type": "bool",
+    "default": true
+   },
+   {
+    "name": "ShowSettleLines",
+    "group": "02. Visual Settings",
+    "order": 4,
+    "label": "Show RTH close target lines",
+    "type": "bool",
+    "default": true
+   },
+   {
+    "name": "SettleLineStyle",
+    "group": "02. Visual Settings",
+    "order": 5,
+    "label": "Target line style",
+    "choices": [
+     "Solid",
+     "Dashed",
+     "Dotted"
+    ],
+    "type": "choice",
+    "default": "Dashed"
+   },
+   {
+    "name": "SettleLineWidth",
+    "group": "02. Visual Settings",
+    "order": 6,
+    "label": "Target line width",
+    "type": "int",
+    "min": 1,
+    "max": 4,
+    "default": 1
+   },
+   {
+    "name": "ShowGapLabels",
+    "group": "02. Visual Settings",
+    "order": 7,
+    "label": "Show gap labels",
+    "type": "bool",
+    "default": true
+   },
+   {
+    "name": "LabelFontSize",
+    "group": "02. Visual Settings",
+    "order": 8,
+    "label": "Label font size",
+    "type": "int",
+    "min": 8,
+    "max": 36,
+    "default": 12
+   },
+   {
+    "name": "GapOpacity",
+    "group": "02. Visual Settings",
+    "order": 9,
+    "label": "Unfilled zone opacity (%)",
+    "type": "int",
+    "min": 0,
+    "max": 100,
+    "default": 20
+   },
+   {
+    "name": "FilledOpacity",
+    "group": "02. Visual Settings",
+    "order": 10,
+    "label": "Filled area opacity (%)",
+    "type": "int",
+    "min": 0,
+    "max": 100,
+    "default": 10
+   },
+   {
+    "name": "BullGapBrush",
+    "group": "02. Visual Settings",
+    "order": 11,
+    "label": "Up gap color",
+    "type": "color",
+    "default": "#32cd32"
+   },
+   {
+    "name": "BearGapBrush",
+    "group": "02. Visual Settings",
+    "order": 12,
+    "label": "Down gap color",
+    "type": "color",
+    "default": "#cd5c5c"
+   },
+   {
+    "name": "FilledGapBrush",
+    "group": "02. Visual Settings",
+    "order": 13,
+    "label": "Filled gap color",
+    "type": "color",
+    "default": "#708090"
+   },
+   {
+    "name": "ShowGapTable",
+    "group": "03. Table Settings",
+    "order": 0,
+    "label": "Show gap table",
+    "type": "bool",
+    "default": true
+   },
+   {
+    "name": "TablePosition",
+    "group": "03. Table Settings",
+    "order": 1,
+    "label": "Table position",
+    "choices": [
+     "TopRight",
+     "TopLeft",
+     "BottomRight",
+     "BottomLeft",
+     "MiddleRight",
+     "MiddleLeft"
+    ],
+    "type": "choice",
+    "default": "TopRight"
+   },
+   {
+    "name": "TableFontSize",
+    "group": "03. Table Settings",
+    "order": 2,
+    "label": "Table font size",
+    "type": "int",
+    "min": 8,
+    "max": 24,
+    "default": 13
+   },
+   {
+    "name": "AlertOnNewGap",
+    "group": "04. Alerts",
+    "order": 0,
+    "label": "Alert on new gap",
+    "type": "bool",
+    "description": "Real-time alerts only. Historical gaps do not replay alerts.",
+    "default": true
+   },
+   {
+    "name": "AlertOnGapFill",
+    "group": "04. Alerts",
+    "order": 1,
+    "label": "Alert on full gap fill",
+    "type": "bool",
+    "default": true
+   }
+  ]
+ },
+ "hema": {
+  "title": "HTF EMA",
+  "version": "1.0.0",
+  "settings": [
+   {
+    "name": "HtfPeriodType",
+    "group": "Parameters",
+    "order": 1,
+    "label": "Source timeframe type",
+    "choices": [
+     "Minute",
+     "Day"
+    ],
+    "type": "choice",
+    "description": "Pine input.timeframe type. Default Minute + 60 = 1 hour.",
+    "default": "Minute"
+   },
+   {
+    "name": "HtfPeriod",
+    "group": "Parameters",
+    "order": 2,
+    "label": "Source timeframe",
+    "type": "int",
+    "description": "Pine input.timeframe value. 60 with Minute = 1 hour.",
+    "min": 1,
+    "max": null,
+    "default": 60
+   },
+   {
+    "name": "EmaLength",
+    "group": "Parameters",
+    "order": 3,
+    "label": "EMA length",
+    "type": "int",
+    "description": "Pine i_len. Default 21.",
+    "min": 1,
+    "max": null,
+    "default": 21
+   },
+   {
+    "name": "Mode",
+    "group": "Parameters",
+    "order": 4,
+    "label": "Mode",
+    "choices": [
+     "LiveHTF",
+     "ExactHTF",
+     "SmoothScaled"
+    ],
+    "type": "choice",
+    "description": "LiveHTF = developing HTF EMA. ExactHTF = last closed HTF EMA. SmoothScaled = chart-TF EMA with scaled length.",
+    "default": "SmoothScaled"
+   },
+   {
+    "name": "PlotHTFEMA",
+    "group": "Plots",
+    "order": 1,
+    "label": "HTF EMA",
+    "type": "stroke",
+    "default": {
+     "color": "#808080",
+     "dash": "Solid",
+     "width": 2.0
+    }
+   }
+  ]
+ },
+ "ifthen": {
+  "title": "If/Then Bias Table",
+  "version": "1.0.0",
+  "settings": [
+   {
+    "name": "InstrumentLabel",
+    "group": "1. General",
+    "order": 0,
+    "label": "Instrument label",
+    "type": "str",
+    "description": "Header instrument label; independent of the chart instrument.",
+    "default": "ES"
+   },
+   {
+    "name": "PriceSource",
+    "group": "1. General",
+    "order": 1,
+    "label": "Price source",
+    "choices": [
+     "Close",
+     "Open",
+     "High",
+     "Low",
+     "HL2",
+     "HLC3",
+     "OHLC4",
+     "HLCC4",
+     "Input series"
+    ],
+    "type": "choice",
+    "description": "Close updates live each tick. Input series uses the Data series > Input series selector, including another indicator.",
+    "default": "Close"
+   },
+   {
+    "name": "TablePosition",
+    "group": "1. General",
+    "order": 2,
+    "label": "Table position",
+    "choices": [
+     "Top Right",
+     "Middle Right",
+     "Bottom Right",
+     "Top Left",
+     "Middle Left",
+     "Bottom Left"
+    ],
+    "type": "choice",
+    "description": "Anchor the table to one of six chart-panel positions.",
+    "default": "Middle Right"
+   },
+   {
+    "name": "TextSize",
+    "group": "1. General",
+    "order": 3,
+    "label": "Text size",
+    "choices": [
+     "Tiny",
+     "Small",
+     "Normal",
+     "Large"
+    ],
+    "type": "choice",
+    "description": "Tiny / Small / Normal / Large. Font metrics depend on the platform.",
+    "default": "Normal"
+   },
+   {
+    "name": "ShowLines",
+    "group": "1. General",
+    "order": 4,
+    "label": "Plot boundary lines on chart",
+    "type": "bool",
+    "description": "Draw a horizontal line at each positive Lo.",
+    "default": true
+   },
+   {
+    "name": "LineWidth",
+    "group": "1. General",
+    "order": 5,
+    "label": "Boundary line width",
+    "type": "int",
+    "description": "Thickness of the boundary lines.",
+    "min": 1,
+    "max": 5,
+    "default": 2
+   },
+   {
+    "name": "LineStyle",
+    "group": "1. General",
+    "order": 6,
+    "label": "Boundary line style",
+    "choices": [
+     "Solid",
+     "Dashed",
+     "Dotted"
+    ],
+    "type": "choice",
+    "description": "Solid, Dashed or Dotted.",
+    "default": "Solid"
+   },
+   {
+    "name": "LineColorMode",
+    "group": "1. General",
+    "order": 7,
+    "label": "Line/label color",
+    "choices": [
+     "Bias",
+     "Position"
+    ],
+    "type": "choice",
+    "description": "Position: above price = resistance; below = support; within the ATR band = neutral. Pivot remains yellow.",
+    "default": "Bias"
+   },
+   {
+    "name": "AtrLength",
+    "group": "1. General",
+    "order": 8,
+    "label": "ATR length (Position band, daily)",
+    "type": "int",
+    "description": "Daily Wilder ATR length. Uses the previous daily ATR, irrespective of chart timeframe.",
+    "min": 1,
+    "max": null,
+    "default": 14
+   },
+   {
+    "name": "AtrPercent",
+    "group": "1. General",
+    "order": 9,
+    "label": "ATR band threshold (%)",
+    "type": "float",
+    "description": "Distance from price as a percentage of daily ATR that remains neutral.",
+    "min": 0.0,
+    "max": null,
+    "default": 10.0
+   },
+   {
+    "name": "ShowZones",
+    "group": "1. General",
+    "order": 10,
+    "label": "Plot ATR zones around lines",
+    "type": "bool",
+    "description": "Band on each side of a positive Lo, sized by daily ATR.",
+    "default": false
+   },
+   {
+    "name": "ZonePercent",
+    "group": "1. General",
+    "order": 11,
+    "label": "Zone ATR % (each side)",
+    "type": "float",
+    "description": "Zone half-width = daily ATR times this percentage.",
+    "min": 0.0,
+    "max": null,
+    "default": 2.0
+   },
+   {
+    "name": "ZoneOpacity",
+    "group": "1. General",
+    "order": 12,
+    "label": "Zone fill opacity",
+    "type": "int",
+    "description": "Source semantics: TRANSPARENCY. 100 = invisible; 0 = solid. Inactive rows add 8.",
+    "min": 0,
+    "max": 100,
+    "default": 75
+   },
+   {
+    "name": "AboveBrush",
+    "group": "1. General",
+    "order": 13,
+    "label": "Position: above price (resistance)",
+    "type": "color",
+    "description": "Position color above price.",
+    "default": "#f23645"
+   },
+   {
+    "name": "BelowBrush",
+    "group": "1. General",
+    "order": 14,
+    "label": "Position: below price (support)",
+    "type": "color",
+    "description": "Position color below price.",
+    "default": "#4caf50"
+   },
+   {
+    "name": "WithinBrush",
+    "group": "1. General",
+    "order": 15,
+    "label": "Position: within ATR band (neutral)",
+    "type": "color",
+    "description": "Position color inside the neutral band, including its edges.",
+    "default": "#ffeb3b"
+   },
+   {
+    "name": "LineLabels",
+    "group": "1. General",
+    "order": 16,
+    "label": "Label boundary lines",
+    "type": "bool",
+    "description": "Print right-aligned text above each positive Lo.",
+    "default": true
+   },
+   {
+    "name": "LabelContent",
+    "group": "1. General",
+    "order": 17,
+    "label": "Line label content",
+    "choices": [
+     "Text",
+     "Price",
+     "Price + Text"
+    ],
+    "type": "choice",
+    "description": "Text, Price or Price + Text.",
+    "default": "Price + Text"
+   },
+   {
+    "name": "WrapCharacters",
+    "group": "1. General",
+    "order": 18,
+    "label": "Line label wrap width (chars, 0 = off)",
+    "type": "int",
+    "description": "Wrap at word boundaries; preserve literal backslash-n manual breaks. Long words remain whole.",
+    "min": 0,
+    "max": 120,
+    "default": 50
+   },
+   {
+    "name": "LabelOffset",
+    "group": "1. General",
+    "order": 19,
+    "label": "Line label room (bars right of last candle)",
+    "type": "int",
+    "description": "The labels sit at the chart's right edge, so they stay put when you zoom or scroll; this is the room kept for them right of the last candle (NinjaTrader draws them this many bars after it).",
+    "min": 0,
+    "max": 500,
+    "default": 75
+   },
+   {
+    "name": "LabelBackground",
+    "group": "1. General",
+    "order": 20,
+    "label": "Label background",
+    "type": "bool",
+    "description": "Use table background color behind line labels.",
+    "default": true
+   },
+   {
+    "name": "ShowTable",
+    "group": "1. General",
+    "order": 21,
+    "label": "Show table",
+    "type": "bool",
+    "description": "Show or hide the table independently of lines, labels and zones.",
+    "default": false
+   },
+   {
+    "name": "BackgroundBrush",
+    "group": "2. Table style",
+    "order": 22,
+    "label": "Background color",
+    "type": "color",
+    "description": "Base table cell color and optional label plate color. Alpha is honored.",
+    "default": "#060606"
+   },
+   {
+    "name": "ActiveRowOpacity",
+    "group": "2. Table style",
+    "order": 23,
+    "label": "Active-row opacity",
+    "type": "int",
+    "description": "Active row fill strength: 0 = transparent, 100 = solid.",
+    "min": 0,
+    "max": 100,
+    "default": 25
+   },
+   {
+    "name": "BorderBrush",
+    "group": "2. Table style",
+    "order": 24,
+    "label": "Border color",
+    "type": "color",
+    "description": "One-pixel table cell borders and frame.",
+    "default": "#060606"
+   },
+   {
+    "name": "RowsBlock",
+    "group": "3. If/Then block",
+    "order": 25,
+    "label": "Rows  (BIAS|LO|HI|TEXT)",
+    "type": "text",
+    "description": "One row per line. U/V/N/D/P. 9999999 = open-top display, 0 = open-bottom display. Literal backslash-n creates text breaks; # at column 1 is a comment.",
+    "default": "U|5050|9999999|Accepts above 5050 \u2192 continuation, next target 5085\nV|5005|5050|Above pivot, holding value \u2192 grind higher\nP|4995|5005|Pivot ~5000 \u2014 the day's reference\nD|4960|4995|Below pivot, no reclaim \u2192 4960 support in play\nD|0|4960|Below 4960 \u2192 range break, downside opens up"
+   }
+  ]
+ },
+ "lines": {
+  "title": "Level Lines",
+  "version": "1.1.0",
+  "settings": [
+   {
+    "name": "RangeTop",
+    "group": "1. Range",
+    "order": 1,
+    "label": "Range top (0 = off)",
+    "type": "float",
+    "default": 0.0
+   },
+   {
+    "name": "RangeBottom",
+    "group": "1. Range",
+    "order": 2,
+    "label": "Range bottom (0 = off)",
+    "type": "float",
+    "default": 0.0
+   },
+   {
+    "name": "RangeTopLabel",
+    "group": "1. Range",
+    "order": 3,
+    "label": "Top label",
+    "type": "str",
+    "default": "TOP OF RANGE"
+   },
+   {
+    "name": "RangeBottomLabel",
+    "group": "1. Range",
+    "order": 4,
+    "label": "Bottom label",
+    "type": "str",
+    "default": "BOTTOM OF RANGE"
+   },
+   {
+    "name": "ShowRangeMid",
+    "group": "1. Range",
+    "order": 5,
+    "label": "Show midpoint",
+    "type": "bool",
+    "default": true
+   },
+   {
+    "name": "RangeMidLabel",
+    "group": "1. Range",
+    "order": 6,
+    "label": "Midpoint label",
+    "type": "str",
+    "default": "RANGE MID"
+   },
+   {
+    "name": "RangeStroke",
+    "group": "1. Range",
+    "order": 7,
+    "label": "Top/bottom line",
+    "type": "stroke",
+    "default": {
+     "color": "#ffa500",
+     "dash": "Solid",
+     "width": 2.0
+    }
+   },
+   {
+    "name": "RangeMidStroke",
+    "group": "1. Range",
+    "order": 8,
+    "label": "Midpoint line",
+    "type": "stroke",
+    "default": {
+     "color": "#ffa500",
+     "dash": "Dash",
+     "width": 1.0
+    }
+   },
+   {
+    "name": "FillRange",
+    "group": "1. Range",
+    "order": 9,
+    "label": "Shade the range",
+    "type": "bool",
+    "default": true
+   },
+   {
+    "name": "RangeFillBrush",
+    "group": "1. Range",
+    "order": 10,
+    "label": "Shade color",
+    "type": "color",
+    "default": "#ffa500"
+   },
+   {
+    "name": "RangeFillOpacity",
+    "group": "1. Range",
+    "order": 11,
+    "label": "Shade opacity %",
+    "type": "int",
+    "min": 0,
+    "max": 100,
+    "default": 6
+   },
+   {
+    "name": "CustomLevels",
+    "group": "2. Custom levels",
+    "order": 1,
+    "label": "Levels (comma / semicolon separated)",
+    "type": "text",
+    "description": "Use Open large levels editor for a roomy text box. Separate LEVELS with commas, semicolons, or new lines. Example: 7845.75|VAH, 7830|POC, 7810|VAL. Within each level, use pipes: price|label|color|style|width. Only price is required; 7845.75, 7830, 7810 also works. Use decimal points and no thousands separators. Commas and semicolons are separators, so do not use them inside labels. Colors: names or hex (#FF00FF). Styles: Solid, Dash, Dot, DashDot, DashDotDot. Full example: 7845.75|VAH|Magenta|Dash|2",
+    "default": ""
+   },
+   {
+    "name": "DefaultStroke",
+    "group": "2. Custom levels",
+    "order": 3,
+    "label": "Default line",
+    "type": "stroke",
+    "description": "Used for any field a custom level leaves out.",
+    "default": {
+     "color": "#ff00ff",
+     "dash": "Solid",
+     "width": 2.0
+    }
+   },
+   {
+    "name": "LabelFont",
+    "group": "3. Labels",
+    "order": 1,
+    "label": "Label font",
+    "type": "font",
+    "default": {
+     "family": "Arial",
+     "size": 11
+    }
+   },
+   {
+    "name": "ShowPriceInLabel",
+    "group": "3. Labels",
+    "order": 2,
+    "label": "Show price in label",
+    "type": "bool",
+    "default": true
+   },
+   {
+    "name": "LabelsOnRight",
+    "group": "3. Labels",
+    "order": 3,
+    "label": "Labels on right edge",
+    "type": "bool",
+    "default": true
+   },
+   {
+    "name": "LabelAboveLine",
+    "group": "3. Labels",
+    "order": 4,
+    "label": "Label above line",
+    "type": "bool",
+    "default": true
+   },
+   {
+    "name": "LabelBackground",
+    "group": "3. Labels",
+    "order": 5,
+    "label": "Label background",
+    "type": "bool",
+    "default": true
+   }
+  ]
+ },
+ "prof": {
+  "title": "Tatanka Session Volume Profile",
+  "version": "1.0.0",
+  "settings": [
+   {
+    "name": "SessionStart",
+    "group": "01. Session",
+    "order": 0,
+    "label": "Session start (HH:mm)",
+    "description": "In CT (ExchangeTemplate, Chart, Central), written for ES/NQ's 08:30-15:00: on another instrument it moves with that one's regular hours (CL's 08:30 is 08:00, its 15:00 13:30).",
+    "type": "str",
+    "default": "08:30"
+   },
+   {
+    "name": "SessionEnd",
+    "group": "01. Session",
+    "order": 1,
+    "label": "Session end (HH:mm)",
+    "type": "str",
+    "default": "15:00"
+   },
+   {
+    "name": "SessionTimeZone",
+    "group": "01. Session",
+    "order": 2,
+    "label": "Session time zone",
+    "description": "ExchangeTemplate and Chart are Chicago time here (CME's Trading Hours template, with DST); Central the same, Eastern New York, UTC.",
+    "type": "choice",
+    "choices": [
+     "ExchangeTemplate",
+     "Central",
+     "Eastern",
+     "Chart",
+     "UTC"
+    ],
+    "default": "ExchangeTemplate"
+   },
+   {
+    "name": "ValueAreaPercent",
+    "group": "01. Session",
+    "order": 3,
+    "label": "Value area volume (%)",
+    "type": "float",
+    "default": 68.0,
+    "min": 1.0,
+    "max": 100.0
+   },
+   {
+    "name": "ValueAreaMethod",
+    "group": "01. Session",
+    "order": 4,
+    "label": "Value area method",
+    "description": "TradingViewStyle stops before the next row exceeds the target. AtLeastTarget includes that row.",
+    "type": "choice",
+    "choices": [
+     "TradingViewStyle",
+     "AtLeastTarget"
+    ],
+    "default": "TradingViewStyle"
+   },
+   {
+    "name": "TicksPerRow",
+    "group": "01. Session",
+    "order": 5,
+    "label": "Ticks per row",
+    "type": "int",
+    "default": 1,
+    "min": 1,
+    "max": 1000
+   },
+   {
+    "name": "SessionsToKeep",
+    "group": "01. Session",
+    "order": 6,
+    "label": "Sessions to retain",
+    "type": "int",
+    "default": 20,
+    "min": 1,
+    "max": 100
+   },
+   {
+    "name": "Alignment",
+    "group": "02. Profile",
+    "order": 0,
+    "label": "Placement",
+    "type": "choice",
+    "choices": [
+     "SessionRight",
+     "ChartRightLatest"
+    ],
+    "default": "SessionRight"
+   },
+   {
+    "name": "WidthPercent",
+    "group": "02. Profile",
+    "order": 1,
+    "label": "Width (% of session / chart)",
+    "type": "float",
+    "default": 20.0,
+    "min": 1.0,
+    "max": 100.0
+   },
+   {
+    "name": "RightPaddingPixels",
+    "group": "02. Profile",
+    "order": 2,
+    "label": "Chart-right padding (pixels)",
+    "type": "int",
+    "default": 12,
+    "min": 0,
+    "max": 500
+   },
+   {
+    "name": "RowGapPixels",
+    "group": "02. Profile",
+    "order": 3,
+    "label": "Row gap (pixels)",
+    "type": "int",
+    "default": 1,
+    "min": 0,
+    "max": 5
+   },
+   {
+    "name": "ShowProfile",
+    "group": "02. Profile",
+    "order": 4,
+    "label": "Volume profile",
+    "type": "bool",
+    "default": true
+   },
+   {
+    "name": "ShowRowVolumes",
+    "group": "02. Profile",
+    "order": 5,
+    "label": "Row volumes (up / down)",
+    "type": "bool",
+    "default": false
+   },
+   {
+    "name": "ShowPoc",
+    "group": "03. Levels",
+    "order": 0,
+    "label": "POC",
+    "type": "bool",
+    "default": true
+   },
+   {
+    "name": "ShowVah",
+    "group": "03. Levels",
+    "order": 1,
+    "label": "VAH",
+    "type": "bool",
+    "default": true
+   },
+   {
+    "name": "ShowVal",
+    "group": "03. Levels",
+    "order": 2,
+    "label": "VAL",
+    "type": "bool",
+    "default": true
+   },
+   {
+    "name": "ExtendPocToChartEdge",
+    "group": "03. Levels",
+    "order": 3,
+    "label": "Extend POC to chart edge",
+    "type": "bool",
+    "default": false
+   },
+   {
+    "name": "ExtendVahToChartEdge",
+    "group": "03. Levels",
+    "order": 4,
+    "label": "Extend VAH to chart edge",
+    "type": "bool",
+    "default": false
+   },
+   {
+    "name": "ExtendValToChartEdge",
+    "group": "03. Levels",
+    "order": 5,
+    "label": "Extend VAL to chart edge",
+    "type": "bool",
+    "default": false
+   },
+   {
+    "name": "LineWidth",
+    "group": "03. Levels",
+    "order": 6,
+    "label": "Line width",
+    "type": "int",
+    "default": 1,
+    "min": 1,
+    "max": 5
+   },
+   {
+    "name": "ShowLevelLabels",
+    "group": "03. Levels",
+    "order": 7,
+    "label": "Level name labels",
+    "type": "bool",
+    "default": false
+   },
+   {
+    "name": "ShowInputsInLabel",
+    "group": "03. Levels",
+    "order": 8,
+    "label": "Inputs in chart label",
+    "type": "bool",
+    "default": true
+   },
+   {
+    "name": "ShowValuesInLabel",
+    "group": "03. Levels",
+    "order": 9,
+    "label": "Values in chart label",
+    "type": "bool",
+    "default": true
+   },
+   {
+    "name": "UpVolumeBrush",
+    "group": "04. Colors",
+    "order": 0,
+    "label": "Up volume",
+    "type": "color",
+    "default": "#505561",
+    "none": true
+   },
+   {
+    "name": "DownVolumeBrush",
+    "group": "04. Colors",
+    "order": 1,
+    "label": "Down volume",
+    "type": "color",
+    "default": "#505561",
+    "none": true
+   },
+   {
+    "name": "ValueAreaUpBrush",
+    "group": "04. Colors",
+    "order": 2,
+    "label": "Value area up",
+    "type": "color",
+    "default": "#c80b5b",
+    "none": true
+   },
+   {
+    "name": "ValueAreaDownBrush",
+    "group": "04. Colors",
+    "order": 3,
+    "label": "Value area down",
+    "type": "color",
+    "default": "#eb1460",
+    "none": true
+   },
+   {
+    "name": "ValueAreaLineBrush",
+    "group": "04. Colors",
+    "order": 4,
+    "label": "VAH / VAL",
+    "type": "color",
+    "default": "#ed1461",
+    "none": true
+   },
+   {
+    "name": "PocLineBrush",
+    "group": "04. Colors",
+    "order": 5,
+    "label": "POC",
+    "type": "color",
+    "default": "#b79dd6",
+    "none": true
+   },
+   {
+    "name": "TextBrush",
+    "group": "04. Colors",
+    "order": 6,
+    "label": "Text",
+    "type": "color",
+    "default": "#d3d3d3",
+    "none": true
+   },
+   {
+    "name": "HistogramBackgroundBrush",
+    "group": "04. Colors",
+    "order": 7,
+    "label": "Histogram box",
+    "type": "color",
+    "default": "transparent",
+    "none": true
+   }
+  ]
+ },
+ "aavp": {
+  "title": "Tatanka Auto Anchored Volume Profile",
+  "version": "1.1.0",
+  "settings": [
+   {
+    "name": "AnchorPeriod",
+    "group": "01. Anchor and calculation",
+    "order": 0,
+    "label": "Anchor period",
+    "type": "choice",
+    "choices": [
+     "Session",
+     "Week",
+     "Month",
+     "Quarter",
+     "Year",
+     "Decade",
+     "Century"
+    ],
+    "default": "Year"
+   },
+   {
+    "name": "VolumeMode",
+    "group": "01. Anchor and calculation",
+    "order": 3,
+    "label": "Volume",
+    "type": "choice",
+    "choices": [
+     "Total",
+     "UpDown",
+     "Delta"
+    ],
+    "default": "Total"
+   },
+   {
+    "name": "ValueAreaPercent",
+    "group": "01. Anchor and calculation",
+    "order": 4,
+    "label": "Value area volume (%)",
+    "type": "float",
+    "default": 68.0,
+    "min": 1.0,
+    "max": 100.0
+   },
+   {
+    "name": "RowsLayout",
+    "group": "01. Anchor and calculation",
+    "order": 1,
+    "label": "Rows layout",
+    "type": "choice",
+    "choices": [
+     "NumberOfRows",
+     "TicksPerRow"
+    ],
+    "default": "NumberOfRows"
+   },
+   {
+    "name": "RowSize",
+    "group": "01. Anchor and calculation",
+    "order": 2,
+    "label": "Row size",
+    "description": "Target row count in NumberOfRows mode, or ticks per row in TicksPerRow mode.",
+    "type": "int",
+    "default": 200,
+    "min": 1,
+    "max": 5000
+   },
+   {
+    "name": "ValueAreaMethod",
+    "group": "01. Anchor and calculation",
+    "order": 5,
+    "label": "Value area method",
+    "type": "choice",
+    "choices": [
+     "TradingViewStyle",
+     "AtLeastTarget"
+    ],
+    "default": "TradingViewStyle"
+   },
+   {
+    "name": "ShowProfile",
+    "group": "02. Profile style",
+    "order": 0,
+    "label": "Volume profile",
+    "type": "bool",
+    "default": true
+   },
+   {
+    "name": "ShowRowValues",
+    "group": "02. Profile style",
+    "order": 1,
+    "label": "Values on rows",
+    "type": "bool",
+    "default": false
+   },
+   {
+    "name": "WidthPercent",
+    "group": "02. Profile style",
+    "order": 2,
+    "label": "Width (% of anchored range / chart)",
+    "type": "float",
+    "default": 30.0,
+    "min": 1.0,
+    "max": 100.0
+   },
+   {
+    "name": "Placement",
+    "group": "02. Profile style",
+    "order": 3,
+    "label": "Placement",
+    "type": "choice",
+    "choices": [
+     "Left",
+     "Right"
+    ],
+    "default": "Left"
+   },
+   {
+    "name": "PinToVisibleEdge",
+    "group": "02. Profile style",
+    "order": 4,
+    "label": "Pin profile to visible chart edge",
+    "description": "Keeps the histogram visible at the selected left/right chart edge. The calculation still starts at the anchor.",
+    "type": "bool",
+    "default": false
+   },
+   {
+    "name": "EdgePaddingPixels",
+    "group": "02. Profile style",
+    "order": 5,
+    "label": "Pinned edge padding (pixels)",
+    "type": "int",
+    "default": 12,
+    "min": 0,
+    "max": 500
+   },
+   {
+    "name": "RowGapPixels",
+    "group": "02. Profile style",
+    "order": 6,
+    "label": "Row gap (pixels)",
+    "type": "int",
+    "default": 1,
+    "min": 0,
+    "max": 5
+   },
+   {
+    "name": "ShowHistoryNotice",
+    "group": "02. Profile style",
+    "order": 7,
+    "label": "Incomplete history notice",
+    "type": "bool",
+    "default": true
+   },
+   {
+    "name": "ShowVah",
+    "group": "03. Lines and labels",
+    "order": 0,
+    "label": "VAH",
+    "type": "bool",
+    "default": true
+   },
+   {
+    "name": "ShowVal",
+    "group": "03. Lines and labels",
+    "order": 1,
+    "label": "VAL",
+    "type": "bool",
+    "default": true
+   },
+   {
+    "name": "ShowPoc",
+    "group": "03. Lines and labels",
+    "order": 2,
+    "label": "POC",
+    "type": "bool",
+    "default": true
+   },
+   {
+    "name": "LineWidth",
+    "group": "03. Lines and labels",
+    "order": 7,
+    "label": "Line width",
+    "type": "int",
+    "default": 1,
+    "min": 1,
+    "max": 5
+   },
+   {
+    "name": "ShowLevelLabels",
+    "group": "03. Lines and labels",
+    "order": 8,
+    "label": "Level name labels",
+    "type": "bool",
+    "default": false
+   },
+   {
+    "name": "ShowInputsInLabel",
+    "group": "03. Lines and labels",
+    "order": 9,
+    "label": "Inputs in chart label",
+    "type": "bool",
+    "default": true
+   },
+   {
+    "name": "ShowValuesInLabel",
+    "group": "03. Lines and labels",
+    "order": 10,
+    "label": "Values in chart label",
+    "type": "bool",
+    "default": true
+   },
+   {
+    "name": "UpVolumeBrush",
+    "group": "04. Colors",
+    "order": 0,
+    "label": "Up / total volume",
+    "type": "color",
+    "default": "#505561",
+    "none": true
+   },
+   {
+    "name": "DownVolumeBrush",
+    "group": "04. Colors",
+    "order": 1,
+    "label": "Down volume",
+    "type": "color",
+    "default": "#505561",
+    "none": true
+   },
+   {
+    "name": "ValueAreaUpBrush",
+    "group": "04. Colors",
+    "order": 2,
+    "label": "Value area up / total",
+    "type": "color",
+    "default": "#800c93",
+    "none": true
+   },
+   {
+    "name": "ValueAreaDownBrush",
+    "group": "04. Colors",
+    "order": 3,
+    "label": "Value area down",
+    "type": "color",
+    "default": "#23093f",
+    "none": true
+   },
+   {
+    "name": "ValueAreaLineBrush",
+    "group": "04. Colors",
+    "order": 4,
+    "label": "VAH / VAL",
+    "type": "color",
+    "default": "#dfff00",
+    "none": true
+   },
+   {
+    "name": "PocLineBrush",
+    "group": "04. Colors",
+    "order": 5,
+    "label": "POC",
+    "type": "color",
+    "default": "#9875cd",
+    "none": true
+   },
+   {
+    "name": "TextBrush",
+    "group": "04. Colors",
+    "order": 6,
+    "label": "Text",
+    "type": "color",
+    "default": "#d3d3d3",
+    "none": true
+   },
+   {
+    "name": "HistogramBackgroundBrush",
+    "group": "04. Colors",
+    "order": 7,
+    "label": "Histogram box",
+    "type": "color",
+    "default": "transparent",
+    "none": true
+   }
+  ]
+ },
+ "pvp": {
+  "title": "Tatanka Periodic Volume Profile",
+  "version": "1.0.0",
+  "settings": [
+   {
+    "name": "Period",
+    "group": "01. Period and calculation",
+    "order": 0,
+    "label": "Period",
+    "type": "choice",
+    "choices": [
+     "Daily",
+     "Weekly",
+     "Monthly",
+     "Yearly"
+    ],
+    "default": "Weekly"
+   },
+   {
+    "name": "PeriodMultiplier",
+    "group": "01. Period and calculation",
+    "order": 1,
+    "label": "Period multiplier",
+    "type": "int",
+    "default": 1,
+    "min": 1,
+    "max": 100
+   },
+   {
+    "name": "VolumeMode",
+    "group": "01. Period and calculation",
+    "order": 2,
+    "label": "Volume",
+    "type": "choice",
+    "choices": [
+     "Total",
+     "UpDown",
+     "Delta"
+    ],
+    "default": "Total"
+   },
+   {
+    "name": "ValueAreaPercent",
+    "group": "01. Period and calculation",
+    "order": 3,
+    "label": "Value area volume (%)",
+    "type": "float",
+    "default": 68.0,
+    "min": 1.0,
+    "max": 100.0
+   },
+   {
+    "name": "RowsLayout",
+    "group": "01. Period and calculation",
+    "order": 4,
+    "label": "Rows layout",
+    "type": "choice",
+    "choices": [
+     "NumberOfRows",
+     "TicksPerRow"
+    ],
+    "default": "NumberOfRows"
+   },
+   {
+    "name": "RowSize",
+    "group": "01. Period and calculation",
+    "order": 5,
+    "label": "Row size",
+    "description": "Target row count in NumberOfRows mode, or ticks per row in TicksPerRow mode.",
+    "type": "int",
+    "default": 200,
+    "min": 1,
+    "max": 5000
+   },
+   {
+    "name": "ValueAreaMethod",
+    "group": "01. Period and calculation",
+    "order": 6,
+    "label": "Value area method",
+    "type": "choice",
+    "choices": [
+     "TradingViewStyle",
+     "AtLeastTarget"
+    ],
+    "default": "TradingViewStyle"
+   },
+   {
+    "name": "ProfilesToKeep",
+    "group": "01. Period and calculation",
+    "order": 7,
+    "label": "Profiles to retain",
+    "type": "int",
+    "default": 20,
+    "min": 1,
+    "max": 100
+   },
+   {
+    "name": "ShowProfile",
+    "group": "02. Profile style",
+    "order": 0,
+    "label": "Volume profile",
+    "type": "bool",
+    "default": true
+   },
+   {
+    "name": "ShowRowValues",
+    "group": "02. Profile style",
+    "order": 1,
+    "label": "Values on rows",
+    "type": "bool",
+    "default": false
+   },
+   {
+    "name": "WidthPercent",
+    "group": "02. Profile style",
+    "order": 2,
+    "label": "Width (% of period / chart)",
+    "type": "float",
+    "default": 60.0,
+    "min": 1.0,
+    "max": 100.0
+   },
+   {
+    "name": "Placement",
+    "group": "02. Profile style",
+    "order": 3,
+    "label": "Placement",
+    "type": "choice",
+    "choices": [
+     "Left",
+     "Right",
+     "ChartRightLatest"
+    ],
+    "default": "Left"
+   },
+   {
+    "name": "RightPaddingPixels",
+    "group": "02. Profile style",
+    "order": 4,
+    "label": "Chart-right padding (pixels)",
+    "type": "int",
+    "default": 12,
+    "min": 0,
+    "max": 500
+   },
+   {
+    "name": "RowGapPixels",
+    "group": "02. Profile style",
+    "order": 5,
+    "label": "Row gap (pixels)",
+    "type": "int",
+    "default": 1,
+    "min": 0,
+    "max": 5
+   },
+   {
+    "name": "ShowHistoryNotice",
+    "group": "02. Profile style",
+    "order": 6,
+    "label": "Incomplete history notice",
+    "type": "bool",
+    "default": true
+   },
+   {
+    "name": "ShowVah",
+    "group": "03. Lines and labels",
+    "order": 0,
+    "label": "VAH",
+    "type": "bool",
+    "default": true
+   },
+   {
+    "name": "ShowVal",
+    "group": "03. Lines and labels",
+    "order": 1,
+    "label": "VAL",
+    "type": "bool",
+    "default": true
+   },
+   {
+    "name": "ShowPoc",
+    "group": "03. Lines and labels",
+    "order": 2,
+    "label": "POC",
+    "type": "bool",
+    "default": true
+   },
+   {
+    "name": "ExtendPoc",
+    "group": "03. Lines and labels",
+    "order": 3,
+    "label": "Extend POC right",
+    "type": "bool",
+    "default": true
+   },
+   {
+    "name": "ExtendVah",
+    "group": "03. Lines and labels",
+    "order": 4,
+    "label": "Extend VAH right",
+    "type": "bool",
+    "default": true
+   },
+   {
+    "name": "ExtendVal",
+    "group": "03. Lines and labels",
+    "order": 5,
+    "label": "Extend VAL right",
+    "type": "bool",
+    "default": true
+   },
+   {
+    "name": "ExtensionBehavior",
+    "group": "03. Lines and labels",
+    "order": 6,
+    "label": "Extension behavior",
+    "type": "choice",
+    "choices": [
+     "UntilTouched",
+     "ToChartEdge"
+    ],
+    "default": "UntilTouched"
+   },
+   {
+    "name": "LineWidth",
+    "group": "03. Lines and labels",
+    "order": 7,
+    "label": "Line width",
+    "type": "int",
+    "default": 1,
+    "min": 1,
+    "max": 5
+   },
+   {
+    "name": "ShowLevelLabels",
+    "group": "03. Lines and labels",
+    "order": 8,
+    "label": "Level name labels",
+    "type": "bool",
+    "default": false
+   },
+   {
+    "name": "ShowInputsInLabel",
+    "group": "03. Lines and labels",
+    "order": 9,
+    "label": "Inputs in chart label",
+    "type": "bool",
+    "default": true
+   },
+   {
+    "name": "ShowValuesInLabel",
+    "group": "03. Lines and labels",
+    "order": 10,
+    "label": "Values in chart label",
+    "type": "bool",
+    "default": true
+   },
+   {
+    "name": "UpVolumeBrush",
+    "group": "04. Colors",
+    "order": 0,
+    "label": "Up / total volume",
+    "type": "color",
+    "default": "#505561",
+    "none": true
+   },
+   {
+    "name": "DownVolumeBrush",
+    "group": "04. Colors",
+    "order": 1,
+    "label": "Down volume",
+    "type": "color",
+    "default": "#404551",
+    "none": true
+   },
+   {
+    "name": "ValueAreaUpBrush",
+    "group": "04. Colors",
+    "order": 2,
+    "label": "Value area up / total",
+    "type": "color",
+    "default": "#00b5ee",
+    "none": true
+   },
+   {
+    "name": "ValueAreaDownBrush",
+    "group": "04. Colors",
+    "order": 3,
+    "label": "Value area down",
+    "type": "color",
+    "default": "#402070",
+    "none": true
+   },
+   {
+    "name": "ValueAreaLineBrush",
+    "group": "04. Colors",
+    "order": 4,
+    "label": "VAH / VAL",
+    "type": "color",
+    "default": "#dfff00",
+    "none": true
+   },
+   {
+    "name": "PocLineBrush",
+    "group": "04. Colors",
+    "order": 5,
+    "label": "POC",
+    "type": "color",
+    "default": "#9875cd",
+    "none": true
+   },
+   {
+    "name": "TextBrush",
+    "group": "04. Colors",
+    "order": 6,
+    "label": "Text",
+    "type": "color",
+    "default": "#d3d3d3",
+    "none": true
+   },
+   {
+    "name": "HistogramBackgroundBrush",
+    "group": "04. Colors",
+    "order": 7,
+    "label": "Histogram box",
+    "type": "color",
+    "default": "transparent",
+    "none": true
+   }
+  ]
+ },
+ "dsma": {
+  "title": "Tatanka Daily SMA x4",
+  "version": "",
+  "settings": [
+   {
+    "name": "SMA1Length",
+    "group": "SMA Lengths",
+    "order": 1,
+    "label": "SMA #1 Length",
+    "type": "int",
+    "default": 8,
+    "min": 1,
+    "max": null
+   },
+   {
+    "name": "SMA2Length",
+    "group": "SMA Lengths",
+    "order": 2,
+    "label": "SMA #2 Length",
+    "type": "int",
+    "default": 21,
+    "min": 1,
+    "max": null
+   },
+   {
+    "name": "SMA3Length",
+    "group": "SMA Lengths",
+    "order": 3,
+    "label": "SMA #3 Length",
+    "type": "int",
+    "default": 50,
+    "min": 1,
+    "max": null
+   },
+   {
+    "name": "SMA4Length",
+    "group": "SMA Lengths",
+    "order": 4,
+    "label": "SMA #4 Length",
+    "type": "int",
+    "default": 200,
+    "min": 1,
+    "max": null
+   },
+   {
+    "name": "LineWidth",
+    "group": "Style",
+    "order": 1,
+    "label": "Line Width",
+    "type": "int",
+    "default": 2,
+    "min": 1,
+    "max": 4
+   },
+   {
+    "name": "ShowLabels",
+    "group": "Labels",
+    "order": 1,
+    "label": "Show Labels",
+    "type": "bool",
+    "default": true
+   },
+   {
+    "name": "LabelOffset",
+    "group": "Labels",
+    "order": 2,
+    "label": "Label Offset",
+    "description": "Bar spaces to the right of the latest chart bar. Increase the chart's right side margin if labels are clipped.",
+    "type": "int",
+    "default": 10,
+    "min": 1,
+    "max": 100
+   },
+   {
+    "name": "LabelSize",
+    "group": "Labels",
+    "order": 3,
+    "label": "Label Size",
+    "type": "choice",
+    "choices": [
+     "Tiny",
+     "Small",
+     "Normal",
+     "Large"
+    ],
+    "default": "Normal"
+   },
+   {
+    "name": "PlotDailySMA1",
+    "group": "Plots",
+    "order": 1,
+    "label": "DailySMA1",
+    "type": "stroke",
+    "nowidth": true,
+    "description": "Its width is Line Width (Style).",
+    "default": {
+     "color": "#ffff00",
+     "dash": "Solid",
+     "width": 2.0
+    }
+   },
+   {
+    "name": "PlotDailySMA2",
+    "group": "Plots",
+    "order": 2,
+    "label": "DailySMA2",
+    "type": "stroke",
+    "nowidth": true,
+    "description": "Its width is Line Width (Style).",
+    "default": {
+     "color": "#0000ff",
+     "dash": "Solid",
+     "width": 2.0
+    }
+   },
+   {
+    "name": "PlotDailySMA3",
+    "group": "Plots",
+    "order": 3,
+    "label": "DailySMA3",
+    "type": "stroke",
+    "nowidth": true,
+    "description": "Its width is Line Width (Style).",
+    "default": {
+     "color": "#ff0000",
+     "dash": "Solid",
+     "width": 2.0
+    }
+   },
+   {
+    "name": "PlotDailySMA4",
+    "group": "Plots",
+    "order": 4,
+    "label": "DailySMA4",
+    "type": "stroke",
+    "nowidth": true,
+    "description": "Its width is Line Width (Style).",
+    "default": {
+     "color": "#ffffff",
+     "dash": "Solid",
+     "width": 2.0
+    }
+   }
+  ]
+ }
+}

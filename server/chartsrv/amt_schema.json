@@ -1,0 +1,2260 @@
+[
+ {
+  "name": "row_scale",
+  "group": "1. Global Settings",
+  "order": 1,
+  "label": "Profile Row Scale",
+  "type": "str",
+  "description": "Ticks per profile row, naked POC bin and single-print block. Auto keeps rows near 0.0035% of price: ES, RTY, CL, GC 1x; YM 2x; NQ 5x. Pick a fixed scale if a symbol loads slowly. Row Size is a floor.",
+  "choices": [
+   "Auto",
+   "1x",
+   "2x",
+   "5x",
+   "10x",
+   "20x",
+   "50x",
+   "100x"
+  ]
+ },
+ {
+  "name": "tick_auto",
+  "group": "1. Global Settings",
+  "order": 2,
+  "label": "Auto Tick Size",
+  "type": "bool"
+ },
+ {
+  "name": "tick_manual_val",
+  "group": "1. Global Settings",
+  "order": 3,
+  "label": "Manual Tick Size",
+  "type": "float",
+  "min": 0.001,
+  "max": null,
+  "finite": true
+ },
+ {
+  "name": "layer_top_pick",
+  "group": "1. Global Settings",
+  "order": 4,
+  "label": "Force on Top",
+  "type": "str",
+  "choices": [
+   "Daily Levels (All)",
+   "Profile POC",
+   "Profile VAH",
+   "Profile VAL",
+   "IB Midpoint",
+   "IB High",
+   "IB Low",
+   "pdPOC",
+   "Prev Day High",
+   "Prev Day Low",
+   "OVN High",
+   "OVN Low",
+   "Prev Month VAH",
+   "Prev Month VAL",
+   "Spike Base"
+  ]
+ },
+ {
+  "name": "HideAllLabels",
+  "group": "1. Global Settings",
+  "order": 5,
+  "label": "Hide All Labels & Price Tags",
+  "type": "bool"
+ },
+ {
+  "name": "ShowPriceTags",
+  "group": "1. Global Settings",
+  "order": 6,
+  "label": "Show Price-Axis Tags",
+  "type": "bool"
+ },
+ {
+  "name": "lvl_text",
+  "group": "2. Daily Levels",
+  "order": 9,
+  "label": "Paste Levels Here",
+  "type": "str",
+  "description": "Paste daily prices here when Levels file is blank. Accepts the one-line levels line (2026-09-30, pivot, resistance..., support...) or the three-line Pivot Level / Resistance Levels / Support Levels block. If both are pasted, the levels line wins."
+ },
+ {
+  "name": "lvl_showLine",
+  "group": "2. Daily Levels",
+  "order": 10,
+  "label": "Show Level Lines",
+  "type": "bool"
+ },
+ {
+  "name": "lvl_ip_color",
+  "group": "2. Daily Levels",
+  "order": 11,
+  "label": "Pivot Color",
+  "type": "color"
+ },
+ {
+  "name": "lvl_bull_color",
+  "group": "2. Daily Levels",
+  "order": 12,
+  "label": "Resistance Color",
+  "type": "color"
+ },
+ {
+  "name": "lvl_bear_color",
+  "group": "2. Daily Levels",
+  "order": 13,
+  "label": "Support Color",
+  "type": "color"
+ },
+ {
+  "name": "lvl_thickness",
+  "group": "2. Daily Levels",
+  "order": 14,
+  "label": "Line Width",
+  "type": "int"
+ },
+ {
+  "name": "lvl_style_in",
+  "group": "2. Daily Levels",
+  "order": 15,
+  "label": "Line Style",
+  "type": "str",
+  "choices": [
+   "Solid",
+   "Dashed",
+   "Dotted"
+  ]
+ },
+ {
+  "name": "lvl_color_flip",
+  "group": "2. Daily Levels",
+  "order": 16,
+  "label": "Flip Colors on Break (Res <-> Supp)",
+  "type": "bool"
+ },
+ {
+  "name": "lvl_flip_atr",
+  "group": "2. Daily Levels",
+  "order": 17,
+  "label": "Flip ATR Buffer",
+  "type": "float",
+  "finite": true
+ },
+ {
+  "name": "lvl_showZones",
+  "group": "2. Daily Levels",
+  "order": 18,
+  "label": "Show Zones",
+  "type": "bool"
+ },
+ {
+  "name": "lvl_zone_mode",
+  "group": "2. Daily Levels",
+  "order": 19,
+  "label": "Zone Size Mode",
+  "type": "str",
+  "choices": [
+   "ATR %",
+   "Ticks"
+  ]
+ },
+ {
+  "name": "lvl_zone_atr_pct",
+  "group": "2. Daily Levels",
+  "order": 20,
+  "label": "Zone Width (ATR %)",
+  "type": "float",
+  "min": 0.01,
+  "max": 0.5,
+  "finite": true
+ },
+ {
+  "name": "lvl_zoneWidthTicks",
+  "group": "2. Daily Levels",
+  "order": 21,
+  "label": "Zone Width (ticks above & below)",
+  "type": "int",
+  "min": 1,
+  "max": 200
+ },
+ {
+  "name": "lvl_zoneOpacity",
+  "group": "2. Daily Levels",
+  "order": 22,
+  "label": "Zone Transparency (0=solid, 100=clear)",
+  "type": "int",
+  "min": 0,
+  "max": 100
+ },
+ {
+  "name": "lvl_zone_style_in",
+  "group": "2. Daily Levels",
+  "order": 23,
+  "label": "Zone Border Style",
+  "type": "str",
+  "choices": [
+   "Solid",
+   "Dashed",
+   "Dotted"
+  ]
+ },
+ {
+  "name": "LabelsLevels",
+  "group": "2. Daily Levels",
+  "order": 24,
+  "label": "Show Labels",
+  "type": "bool"
+ },
+ {
+  "name": "lvl_text_size_opt",
+  "group": "2. Daily Levels",
+  "order": 25,
+  "label": "Label Size",
+  "type": "str",
+  "choices": [
+   "auto",
+   "tiny",
+   "small",
+   "normal",
+   "large",
+   "huge"
+  ]
+ },
+ {
+  "name": "lvl_x_offset",
+  "group": "2. Daily Levels",
+  "order": 26,
+  "label": "Label Offset",
+  "type": "int"
+ },
+ {
+  "name": "lvl_txt_c",
+  "group": "2. Daily Levels",
+  "order": 27,
+  "label": "Label Text Color",
+  "type": "color",
+  "description": "Transparent (the default) uses each line's own color. Pick any color to override."
+ },
+ {
+  "name": "lvl_alerts",
+  "group": "2. Daily Levels",
+  "order": 28,
+  "label": "Enable Level Alerts",
+  "type": "bool",
+  "description": "Enable alerts for the pasted or file-loaded daily levels. Other structural groups have their own alert switches."
+ },
+ {
+  "name": "lvl_alert_ip",
+  "group": "2. Daily Levels",
+  "order": 29,
+  "label": "Pivot Alerts",
+  "type": "bool"
+ },
+ {
+  "name": "lvl_alert_bull",
+  "group": "2. Daily Levels",
+  "order": 30,
+  "label": "Resistance Alerts",
+  "type": "bool"
+ },
+ {
+  "name": "lvl_alert_bear",
+  "group": "2. Daily Levels",
+  "order": 31,
+  "label": "Support Alerts",
+  "type": "bool"
+ },
+ {
+  "name": "pd_enable",
+  "group": "3. Previous Day High/Low/Open",
+  "order": 32,
+  "label": "Enable Prev Day Levels",
+  "type": "bool"
+ },
+ {
+  "name": "pd_use_rth",
+  "group": "3. Previous Day High/Low/Open",
+  "order": 33,
+  "label": "Use Custom Session for High/Low",
+  "type": "bool"
+ },
+ {
+  "name": "pd_sess_time",
+  "group": "3. Previous Day High/Low/Open",
+  "order": 34,
+  "label": "Custom Session Time (CT)",
+  "type": "str",
+  "session": true
+ },
+ {
+  "name": "pd_showH",
+  "group": "3. Previous Day High/Low/Open",
+  "order": 35,
+  "label": "Show pdHigh",
+  "type": "bool"
+ },
+ {
+  "name": "pd_showL",
+  "group": "3. Previous Day High/Low/Open",
+  "order": 36,
+  "label": "Show pdLow",
+  "type": "bool"
+ },
+ {
+  "name": "pd_showOpen",
+  "group": "3. Previous Day High/Low/Open",
+  "order": 37,
+  "label": "Show pdOpen",
+  "type": "bool"
+ },
+ {
+  "name": "pd_high_c",
+  "group": "3. Previous Day High/Low/Open",
+  "order": 38,
+  "label": "pdHigh Color",
+  "type": "color"
+ },
+ {
+  "name": "pd_low_c",
+  "group": "3. Previous Day High/Low/Open",
+  "order": 39,
+  "label": "pdLow Color",
+  "type": "color"
+ },
+ {
+  "name": "pd_open_c",
+  "group": "3. Previous Day High/Low/Open",
+  "order": 40,
+  "label": "pdOpen Color",
+  "type": "color"
+ },
+ {
+  "name": "pd_high_width",
+  "group": "3. Previous Day High/Low/Open",
+  "order": 41,
+  "label": "pdHigh Width",
+  "type": "int"
+ },
+ {
+  "name": "pd_low_width",
+  "group": "3. Previous Day High/Low/Open",
+  "order": 42,
+  "label": "pdLow Width",
+  "type": "int"
+ },
+ {
+  "name": "pd_open_width",
+  "group": "3. Previous Day High/Low/Open",
+  "order": 43,
+  "label": "pdOpen Width",
+  "type": "int"
+ },
+ {
+  "name": "pd_style_in",
+  "group": "3. Previous Day High/Low/Open",
+  "order": 44,
+  "label": "Line Style",
+  "type": "str",
+  "choices": [
+   "Solid",
+   "Dashed",
+   "Dotted"
+  ]
+ },
+ {
+  "name": "LabelsPriorDay",
+  "group": "3. Previous Day High/Low/Open",
+  "order": 45,
+  "label": "Show Labels",
+  "type": "bool"
+ },
+ {
+  "name": "pd_lb_size_in",
+  "group": "3. Previous Day High/Low/Open",
+  "order": 46,
+  "label": "Label Size",
+  "type": "str",
+  "choices": [
+   "Tiny",
+   "Small",
+   "Normal",
+   "Large"
+  ]
+ },
+ {
+  "name": "pd_offset_val",
+  "group": "3. Previous Day High/Low/Open",
+  "order": 47,
+  "label": "Label Offset",
+  "type": "int"
+ },
+ {
+  "name": "pd_txt_c",
+  "group": "3. Previous Day High/Low/Open",
+  "order": 48,
+  "label": "Label Text Color",
+  "type": "color",
+  "description": "Transparent (the default) uses each line's own color. Pick any color to override."
+ },
+ {
+  "name": "pd_alert_hl",
+  "group": "3. Previous Day High/Low/Open",
+  "order": 49,
+  "label": "Alert High/Low Break",
+  "type": "bool"
+ },
+ {
+  "name": "cc_enable",
+  "group": "4. Previous Day Value & 80% Rule",
+  "order": 50,
+  "label": "Enable Prev Day Value & 80% Rule",
+  "type": "bool"
+ },
+ {
+  "name": "cc_va_pct",
+  "group": "4. Previous Day Value & 80% Rule",
+  "order": 51,
+  "label": "Value Area %",
+  "type": "float",
+  "min": 0.01,
+  "max": 1.0,
+  "finite": true
+ },
+ {
+  "name": "cc_sess_def",
+  "group": "4. Previous Day Value & 80% Rule",
+  "order": 52,
+  "label": "RTH Session for VA (CT)",
+  "type": "str",
+  "description": "Bars in this session build the prior-day value (pdPOC, pdVAH, pdVAL). Its first bar is the RTH open used by OPEN, the gap test and the 80% Rule.",
+  "session": true
+ },
+ {
+  "name": "cc_show_poc",
+  "group": "4. Previous Day Value & 80% Rule",
+  "order": 53,
+  "label": "Show pdPOC",
+  "type": "bool"
+ },
+ {
+  "name": "cc_show_vah",
+  "group": "4. Previous Day Value & 80% Rule",
+  "order": 54,
+  "label": "Show pdVAH",
+  "type": "bool"
+ },
+ {
+  "name": "cc_show_val",
+  "group": "4. Previous Day Value & 80% Rule",
+  "order": 55,
+  "label": "Show pdVAL",
+  "type": "bool"
+ },
+ {
+  "name": "pd_poc_c",
+  "group": "4. Previous Day Value & 80% Rule",
+  "order": 56,
+  "label": "pdPOC Color",
+  "type": "color"
+ },
+ {
+  "name": "pd_vah_c",
+  "group": "4. Previous Day Value & 80% Rule",
+  "order": 57,
+  "label": "pdVAH Color",
+  "type": "color"
+ },
+ {
+  "name": "pd_val_c",
+  "group": "4. Previous Day Value & 80% Rule",
+  "order": 58,
+  "label": "pdVAL Color",
+  "type": "color"
+ },
+ {
+  "name": "cc_poc_width",
+  "group": "4. Previous Day Value & 80% Rule",
+  "order": 59,
+  "label": "pdPOC Width",
+  "type": "int"
+ },
+ {
+  "name": "cc_vah_width",
+  "group": "4. Previous Day Value & 80% Rule",
+  "order": 60,
+  "label": "pdVAH Width",
+  "type": "int"
+ },
+ {
+  "name": "cc_val_width",
+  "group": "4. Previous Day Value & 80% Rule",
+  "order": 61,
+  "label": "pdVAL Width",
+  "type": "int"
+ },
+ {
+  "name": "cc_poc_style_in",
+  "group": "4. Previous Day Value & 80% Rule",
+  "order": 62,
+  "label": "Line Style",
+  "type": "str",
+  "choices": [
+   "Solid",
+   "Dashed",
+   "Dotted"
+  ]
+ },
+ {
+  "name": "LabelsPriorValue",
+  "group": "4. Previous Day Value & 80% Rule",
+  "order": 63,
+  "label": "Show Labels",
+  "type": "bool"
+ },
+ {
+  "name": "cc_lb_size_in",
+  "group": "4. Previous Day Value & 80% Rule",
+  "order": 64,
+  "label": "Label Size",
+  "type": "str",
+  "choices": [
+   "Tiny",
+   "Small",
+   "Normal",
+   "Large"
+  ]
+ },
+ {
+  "name": "cc_lb_offset",
+  "group": "4. Previous Day Value & 80% Rule",
+  "order": 65,
+  "label": "Label Offset",
+  "type": "int"
+ },
+ {
+  "name": "cc_txt_c",
+  "group": "4. Previous Day Value & 80% Rule",
+  "order": 66,
+  "label": "Label Text Color",
+  "type": "color",
+  "description": "Transparent (the default) uses each line's own color. Pick any color to override."
+ },
+ {
+  "name": "cc_showFill",
+  "group": "4. Previous Day Value & 80% Rule",
+  "order": 67,
+  "label": "Show 80% Rule Fill",
+  "type": "bool",
+  "description": "Shades prior-day value while the 80% Rule is active or confirmed. Display only: the rule, the dashboard row and the alert work either way."
+ },
+ {
+  "name": "cc_col_active",
+  "group": "4. Previous Day Value & 80% Rule",
+  "order": 68,
+  "label": "Fill: Active (Setup)",
+  "type": "color"
+ },
+ {
+  "name": "cc_col_conf",
+  "group": "4. Previous Day Value & 80% Rule",
+  "order": 69,
+  "label": "Fill: Confirmed (80%)",
+  "type": "color"
+ },
+ {
+  "name": "cc_alert_va",
+  "group": "4. Previous Day Value & 80% Rule",
+  "order": 70,
+  "label": "Alert pdVAH/pdVAL/pdPOC Cross",
+  "type": "bool"
+ },
+ {
+  "name": "cc_alert_80",
+  "group": "4. Previous Day Value & 80% Rule",
+  "order": 71,
+  "label": "Alert 80% Rule Confirmed",
+  "type": "bool"
+ },
+ {
+  "name": "amt_enable",
+  "group": "5. Overnight High/Low",
+  "order": 72,
+  "label": "Enable OVN High/Low",
+  "type": "bool"
+ },
+ {
+  "name": "amt_sess",
+  "group": "5. Overnight High/Low",
+  "order": 73,
+  "label": "OVN Session Time (CT)",
+  "type": "str",
+  "session": true
+ },
+ {
+  "name": "amt_del_sess",
+  "group": "5. Overnight High/Low",
+  "order": 74,
+  "label": "Delete OVN Lines At (CT)",
+  "type": "str",
+  "session": true
+ },
+ {
+  "name": "amt_c_hi",
+  "group": "5. Overnight High/Low",
+  "order": 75,
+  "label": "High Color",
+  "type": "color"
+ },
+ {
+  "name": "amt_c_lo",
+  "group": "5. Overnight High/Low",
+  "order": 76,
+  "label": "Low Color",
+  "type": "color"
+ },
+ {
+  "name": "amt_width",
+  "group": "5. Overnight High/Low",
+  "order": 77,
+  "label": "Line Width",
+  "type": "int",
+  "min": 1,
+  "max": null
+ },
+ {
+  "name": "amt_style_in",
+  "group": "5. Overnight High/Low",
+  "order": 78,
+  "label": "Line Style",
+  "type": "str",
+  "choices": [
+   "Solid",
+   "Dashed",
+   "Dotted"
+  ]
+ },
+ {
+  "name": "amt_showLb",
+  "group": "5. Overnight High/Low",
+  "order": 79,
+  "label": "Show Labels",
+  "type": "bool"
+ },
+ {
+  "name": "amt_lb_size_in",
+  "group": "5. Overnight High/Low",
+  "order": 80,
+  "label": "Label Size",
+  "type": "str",
+  "choices": [
+   "Tiny",
+   "Small",
+   "Normal",
+   "Large"
+  ]
+ },
+ {
+  "name": "amt_offset",
+  "group": "5. Overnight High/Low",
+  "order": 81,
+  "label": "Label Offset",
+  "type": "int"
+ },
+ {
+  "name": "amt_c_txt_hi",
+  "group": "5. Overnight High/Low",
+  "order": 82,
+  "label": "High Label Text Color",
+  "type": "color"
+ },
+ {
+  "name": "amt_c_txt_lo",
+  "group": "5. Overnight High/Low",
+  "order": 83,
+  "label": "Low Label Text Color",
+  "type": "color"
+ },
+ {
+  "name": "amt_alert_ovn",
+  "group": "5. Overnight High/Low",
+  "order": 84,
+  "label": "Alert OVN Break",
+  "type": "bool"
+ },
+ {
+  "name": "ib_enable",
+  "group": "6. Initial Balance",
+  "order": 85,
+  "label": "Enable IB",
+  "type": "bool"
+ },
+ {
+  "name": "ib_session",
+  "group": "6. Initial Balance",
+  "order": 86,
+  "label": "IB Calc Period (CT)",
+  "type": "str",
+  "session": true
+ },
+ {
+  "name": "ib_col_hi",
+  "group": "6. Initial Balance",
+  "order": 87,
+  "label": "IB High Color",
+  "type": "color"
+ },
+ {
+  "name": "ib_col_lo",
+  "group": "6. Initial Balance",
+  "order": 88,
+  "label": "IB Low Color",
+  "type": "color"
+ },
+ {
+  "name": "ib_lvl_width",
+  "group": "6. Initial Balance",
+  "order": 89,
+  "label": "Line Width",
+  "type": "int"
+ },
+ {
+  "name": "ib_style_main",
+  "group": "6. Initial Balance",
+  "order": 90,
+  "label": "High/Low Style",
+  "type": "str",
+  "choices": [
+   "Solid",
+   "Dashed",
+   "Dotted"
+  ]
+ },
+ {
+  "name": "ib_show_mid",
+  "group": "6. Initial Balance",
+  "order": 91,
+  "label": "Show IB Midpoint",
+  "type": "bool"
+ },
+ {
+  "name": "ib_col_mid",
+  "group": "6. Initial Balance",
+  "order": 92,
+  "label": "Midpoint Color",
+  "type": "color"
+ },
+ {
+  "name": "ib_style_int",
+  "group": "6. Initial Balance",
+  "order": 93,
+  "label": "Midpoint Style",
+  "type": "str",
+  "choices": [
+   "Solid",
+   "Dashed",
+   "Dotted"
+  ]
+ },
+ {
+  "name": "ib_extend",
+  "group": "6. Initial Balance",
+  "order": 94,
+  "label": "Extend IB Levels",
+  "type": "str",
+  "choices": [
+   "Right",
+   "Left",
+   "Both",
+   "None"
+  ]
+ },
+ {
+  "name": "ib_limit_ext",
+  "group": "6. Initial Balance",
+  "order": 95,
+  "label": "Stop Extension at Time",
+  "type": "bool"
+ },
+ {
+  "name": "ib_stop_time",
+  "group": "6. Initial Balance",
+  "order": 96,
+  "label": "Stop Time (CT)",
+  "type": "str",
+  "session": true
+ },
+ {
+  "name": "ib_show_labels",
+  "group": "6. Initial Balance",
+  "order": 97,
+  "label": "Show Labels",
+  "type": "bool"
+ },
+ {
+  "name": "ib_label_loc",
+  "group": "6. Initial Balance",
+  "order": 98,
+  "label": "Label Location",
+  "type": "str",
+  "choices": [
+   "Left",
+   "Right"
+  ]
+ },
+ {
+  "name": "ib_label_size",
+  "group": "6. Initial Balance",
+  "order": 99,
+  "label": "Label Size",
+  "type": "str",
+  "choices": [
+   "Auto",
+   "Huge",
+   "Large",
+   "Normal",
+   "Small",
+   "Tiny"
+  ]
+ },
+ {
+  "name": "ib_lbl_offset",
+  "group": "6. Initial Balance",
+  "order": 100,
+  "label": "Label Offset",
+  "type": "int"
+ },
+ {
+  "name": "ib_txt_c",
+  "group": "6. Initial Balance",
+  "order": 101,
+  "label": "Label Text Color",
+  "type": "color",
+  "description": "Transparent (the default) uses each line's own color. Pick any color to override."
+ },
+ {
+  "name": "ib_alert_ibh",
+  "group": "6. Initial Balance",
+  "order": 102,
+  "label": "Alert IB High Cross",
+  "type": "bool"
+ },
+ {
+  "name": "ib_alert_ibl",
+  "group": "6. Initial Balance",
+  "order": 103,
+  "label": "Alert IB Low Cross",
+  "type": "bool"
+ },
+ {
+  "name": "ib_alert_time",
+  "group": "6. Initial Balance",
+  "order": 104,
+  "label": "Alert Window (CT)",
+  "type": "str",
+  "session": true
+ },
+ {
+  "name": "vwap_enable",
+  "group": "7. RTH VWAP",
+  "order": 105,
+  "label": "Enable RTH VWAP",
+  "type": "bool"
+ },
+ {
+  "name": "vwap_start_h",
+  "group": "7. RTH VWAP",
+  "order": 106,
+  "label": "Start Hour (CT)",
+  "type": "int",
+  "min": 0,
+  "max": 23
+ },
+ {
+  "name": "vwap_start_m",
+  "group": "7. RTH VWAP",
+  "order": 107,
+  "label": "Start Minute",
+  "type": "int",
+  "min": 0,
+  "max": 59
+ },
+ {
+  "name": "vwap_end_h",
+  "group": "7. RTH VWAP",
+  "order": 108,
+  "label": "End Hour (CT)",
+  "type": "int",
+  "min": 0,
+  "max": 23
+ },
+ {
+  "name": "vwap_end_m",
+  "group": "7. RTH VWAP",
+  "order": 109,
+  "label": "End Minute",
+  "type": "int",
+  "min": 0,
+  "max": 59
+ },
+ {
+  "name": "vwap_col",
+  "group": "7. RTH VWAP",
+  "order": 110,
+  "label": "Color",
+  "type": "color"
+ },
+ {
+  "name": "vwap_width",
+  "group": "7. RTH VWAP",
+  "order": 111,
+  "label": "Width",
+  "type": "int"
+ },
+ {
+  "name": "vwap_style",
+  "group": "7. RTH VWAP",
+  "order": 112,
+  "label": "Style",
+  "type": "str",
+  "choices": [
+   "Solid",
+   "Dashed",
+   "Dotted"
+  ]
+ },
+ {
+  "name": "vwap_alert",
+  "group": "7. RTH VWAP",
+  "order": 113,
+  "label": "Alert VWAP Cross",
+  "type": "bool"
+ },
+ {
+  "name": "cc_showOpen",
+  "group": "8. Daily & Weekly Open",
+  "order": 114,
+  "label": "Show RTH Open (8:30)",
+  "type": "bool"
+ },
+ {
+  "name": "cc_c_open",
+  "group": "8. Daily & Weekly Open",
+  "order": 115,
+  "label": "RTH Open Color",
+  "type": "color"
+ },
+ {
+  "name": "cc_open_width",
+  "group": "8. Daily & Weekly Open",
+  "order": 116,
+  "label": "RTH Open Width",
+  "type": "int"
+ },
+ {
+  "name": "cc_open_style",
+  "group": "8. Daily & Weekly Open",
+  "order": 117,
+  "label": "RTH Open Style",
+  "type": "str",
+  "choices": [
+   "Solid",
+   "Dashed",
+   "Dotted"
+  ]
+ },
+ {
+  "name": "wk_showOpen",
+  "group": "8. Daily & Weekly Open",
+  "order": 118,
+  "label": "Show Weekly Open (Globex Sunday)",
+  "type": "bool"
+ },
+ {
+  "name": "wk_c_open",
+  "group": "8. Daily & Weekly Open",
+  "order": 119,
+  "label": "Weekly Open Color",
+  "type": "color"
+ },
+ {
+  "name": "wk_open_width",
+  "group": "8. Daily & Weekly Open",
+  "order": 120,
+  "label": "Weekly Open Width",
+  "type": "int"
+ },
+ {
+  "name": "wk_open_style",
+  "group": "8. Daily & Weekly Open",
+  "order": 121,
+  "label": "Weekly Open Style",
+  "type": "str",
+  "choices": [
+   "Solid",
+   "Dashed",
+   "Dotted"
+  ]
+ },
+ {
+  "name": "LabelsOpens",
+  "group": "8. Daily & Weekly Open",
+  "order": 122,
+  "label": "Show Labels",
+  "type": "bool"
+ },
+ {
+  "name": "cc_open_lb_size",
+  "group": "8. Daily & Weekly Open",
+  "order": 123,
+  "label": "RTH Open Label Size",
+  "type": "str",
+  "choices": [
+   "Tiny",
+   "Small",
+   "Normal",
+   "Large",
+   "Huge"
+  ]
+ },
+ {
+  "name": "cc_open_offset",
+  "group": "8. Daily & Weekly Open",
+  "order": 124,
+  "label": "RTH Open Label Offset",
+  "type": "int"
+ },
+ {
+  "name": "wk_open_lb_size",
+  "group": "8. Daily & Weekly Open",
+  "order": 125,
+  "label": "Weekly Open Label Size",
+  "type": "str",
+  "choices": [
+   "Tiny",
+   "Small",
+   "Normal",
+   "Large",
+   "Huge"
+  ]
+ },
+ {
+  "name": "wk_open_offset",
+  "group": "8. Daily & Weekly Open",
+  "order": 126,
+  "label": "Weekly Open Label Offset",
+  "type": "int"
+ },
+ {
+  "name": "opens_txt_c",
+  "group": "8. Daily & Weekly Open",
+  "order": 127,
+  "label": "Label Text Color",
+  "type": "color",
+  "description": "Transparent (the default) uses each line's own color. Pick any color to override."
+ },
+ {
+  "name": "wk_alert_open",
+  "group": "8. Daily & Weekly Open",
+  "order": 128,
+  "label": "Alert Weekly Open Cross",
+  "type": "bool"
+ },
+ {
+  "name": "pw_enable",
+  "group": "9. Previous Week",
+  "order": 129,
+  "label": "Enable Prev Week Levels",
+  "type": "bool"
+ },
+ {
+  "name": "pw_showH",
+  "group": "9. Previous Week",
+  "order": 130,
+  "label": "Show pwHigh",
+  "type": "bool"
+ },
+ {
+  "name": "pw_showL",
+  "group": "9. Previous Week",
+  "order": 131,
+  "label": "Show pwLow",
+  "type": "bool"
+ },
+ {
+  "name": "pw_col",
+  "group": "9. Previous Week",
+  "order": 132,
+  "label": "Line Color",
+  "type": "color"
+ },
+ {
+  "name": "pw_width",
+  "group": "9. Previous Week",
+  "order": 133,
+  "label": "Line Width",
+  "type": "int"
+ },
+ {
+  "name": "pw_style_in",
+  "group": "9. Previous Week",
+  "order": 134,
+  "label": "Line Style",
+  "type": "str",
+  "choices": [
+   "Solid",
+   "Dashed",
+   "Dotted"
+  ]
+ },
+ {
+  "name": "LabelsPriorWeek",
+  "group": "9. Previous Week",
+  "order": 135,
+  "label": "Show Labels",
+  "type": "bool"
+ },
+ {
+  "name": "pw_lb_size_in",
+  "group": "9. Previous Week",
+  "order": 136,
+  "label": "Label Size",
+  "type": "str",
+  "choices": [
+   "Tiny",
+   "Small",
+   "Normal",
+   "Large"
+  ]
+ },
+ {
+  "name": "pw_offset",
+  "group": "9. Previous Week",
+  "order": 137,
+  "label": "Label Offset",
+  "type": "int"
+ },
+ {
+  "name": "pw_c_txt",
+  "group": "9. Previous Week",
+  "order": 138,
+  "label": "Label Text Color",
+  "type": "color"
+ },
+ {
+  "name": "pw_alert_hl",
+  "group": "9. Previous Week",
+  "order": 139,
+  "label": "Alert High/Low Break",
+  "type": "bool"
+ },
+ {
+  "name": "macro_show_month",
+  "group": "10. Previous Month",
+  "order": 140,
+  "label": "Show pmVAH/pmVAL",
+  "type": "bool"
+ },
+ {
+  "name": "macro_show_poc",
+  "group": "10. Previous Month",
+  "order": 141,
+  "label": "Show pmPOC",
+  "type": "bool"
+ },
+ {
+  "name": "macro_show_hl",
+  "group": "10. Previous Month",
+  "order": 142,
+  "label": "Show pmHigh/pmLow",
+  "type": "bool"
+ },
+ {
+  "name": "macro_color",
+  "group": "10. Previous Month",
+  "order": 143,
+  "label": "Line Color",
+  "type": "color"
+ },
+ {
+  "name": "macro_width",
+  "group": "10. Previous Month",
+  "order": 144,
+  "label": "Line Width",
+  "type": "int"
+ },
+ {
+  "name": "macro_style",
+  "group": "10. Previous Month",
+  "order": 145,
+  "label": "Line Style",
+  "type": "str",
+  "choices": [
+   "Solid",
+   "Dashed",
+   "Dotted"
+  ]
+ },
+ {
+  "name": "macro_poc_color",
+  "group": "10. Previous Month",
+  "order": 146,
+  "label": "POC Color",
+  "type": "color"
+ },
+ {
+  "name": "macro_poc_width",
+  "group": "10. Previous Month",
+  "order": 147,
+  "label": "POC Width",
+  "type": "int"
+ },
+ {
+  "name": "macro_poc_style",
+  "group": "10. Previous Month",
+  "order": 148,
+  "label": "POC Style",
+  "type": "str",
+  "choices": [
+   "Solid",
+   "Dashed",
+   "Dotted"
+  ]
+ },
+ {
+  "name": "LabelsPriorMonth",
+  "group": "10. Previous Month",
+  "order": 149,
+  "label": "Show Labels",
+  "type": "bool"
+ },
+ {
+  "name": "macro_text_size",
+  "group": "10. Previous Month",
+  "order": 150,
+  "label": "Label Size",
+  "type": "str",
+  "choices": [
+   "Tiny",
+   "Small",
+   "Normal",
+   "Large"
+  ]
+ },
+ {
+  "name": "macro_offset",
+  "group": "10. Previous Month",
+  "order": 151,
+  "label": "Label Offset",
+  "type": "int"
+ },
+ {
+  "name": "macro_txt_c",
+  "group": "10. Previous Month",
+  "order": 152,
+  "label": "Label Text Color",
+  "type": "color",
+  "description": "Transparent (the default) uses each line's own color. Pick any color to override."
+ },
+ {
+  "name": "macro_alert_lvl",
+  "group": "10. Previous Month",
+  "order": 153,
+  "label": "Alert Prev Month Cross",
+  "type": "bool"
+ },
+ {
+  "name": "mvp_master",
+  "group": "11. Volume Profile",
+  "order": 154,
+  "label": "Enable Volume Profile",
+  "type": "bool"
+ },
+ {
+  "name": "mvp_tf_mode",
+  "group": "11. Volume Profile",
+  "order": 155,
+  "label": "Profile Period",
+  "type": "str",
+  "choices": [
+   "Session",
+   "Weekly",
+   "Monthly",
+   "Yearly"
+  ]
+ },
+ {
+  "name": "mvp_sess_time",
+  "group": "11. Volume Profile",
+  "order": 156,
+  "label": "Session Time (CT)",
+  "type": "str",
+  "session": true
+ },
+ {
+  "name": "mvp_sess_dur",
+  "group": "11. Volume Profile",
+  "order": 157,
+  "label": "Session Duration (Hours)",
+  "type": "float",
+  "finite": true
+ },
+ {
+  "name": "mvp_calc_tf",
+  "group": "11. Volume Profile",
+  "order": 158,
+  "label": "Calc Precision",
+  "type": "str"
+ },
+ {
+  "name": "mvp_row_size",
+  "group": "11. Volume Profile",
+  "order": 159,
+  "label": "Row Size",
+  "type": "float",
+  "min": 0.25,
+  "max": null,
+  "finite": true
+ },
+ {
+  "name": "mvp_val_pct",
+  "group": "11. Volume Profile",
+  "order": 160,
+  "label": "Value Area %",
+  "type": "float",
+  "finite": true
+ },
+ {
+  "name": "mvp_profile_width",
+  "group": "11. Volume Profile",
+  "order": 161,
+  "label": "Profile Width (Bars)",
+  "type": "int",
+  "min": 10,
+  "max": 500
+ },
+ {
+  "name": "mvp_align_right",
+  "group": "11. Volume Profile",
+  "order": 162,
+  "label": "Right Align",
+  "type": "bool"
+ },
+ {
+  "name": "mvp_offset",
+  "group": "11. Volume Profile",
+  "order": 163,
+  "label": "Profile Offset (Bars)",
+  "type": "int",
+  "min": -200,
+  "max": 200
+ },
+ {
+  "name": "mvp_c_hist_va",
+  "group": "11. Volume Profile",
+  "order": 164,
+  "label": "VA Histogram Color",
+  "type": "color"
+ },
+ {
+  "name": "mvp_hist_va_transp",
+  "group": "11. Volume Profile",
+  "order": 165,
+  "label": "VA Transparency",
+  "type": "int"
+ },
+ {
+  "name": "mvp_c_hist_out",
+  "group": "11. Volume Profile",
+  "order": 166,
+  "label": "Outer Histogram Color",
+  "type": "color"
+ },
+ {
+  "name": "mvp_hist_out_transp",
+  "group": "11. Volume Profile",
+  "order": 167,
+  "label": "Outer Transparency",
+  "type": "int"
+ },
+ {
+  "name": "mvp_show_poc",
+  "group": "11. Volume Profile",
+  "order": 168,
+  "label": "Show POC",
+  "type": "bool"
+ },
+ {
+  "name": "mvp_c_poc",
+  "group": "11. Volume Profile",
+  "order": 169,
+  "label": "POC Color",
+  "type": "color"
+ },
+ {
+  "name": "mvp_poc_width",
+  "group": "11. Volume Profile",
+  "order": 170,
+  "label": "POC Width",
+  "type": "int"
+ },
+ {
+  "name": "mvp_poc_style",
+  "group": "11. Volume Profile",
+  "order": 171,
+  "label": "POC Style",
+  "type": "str",
+  "choices": [
+   "Solid",
+   "Dashed",
+   "Dotted"
+  ]
+ },
+ {
+  "name": "mvp_show_vah",
+  "group": "11. Volume Profile",
+  "order": 172,
+  "label": "Show VAH",
+  "type": "bool"
+ },
+ {
+  "name": "mvp_show_val",
+  "group": "11. Volume Profile",
+  "order": 173,
+  "label": "Show VAL",
+  "type": "bool"
+ },
+ {
+  "name": "mvp_c_levels",
+  "group": "11. Volume Profile",
+  "order": 174,
+  "label": "VAH/VAL Color",
+  "type": "color"
+ },
+ {
+  "name": "mvp_lvl_width",
+  "group": "11. Volume Profile",
+  "order": 175,
+  "label": "VAH/VAL Width",
+  "type": "int"
+ },
+ {
+  "name": "mvp_lvl_style",
+  "group": "11. Volume Profile",
+  "order": 176,
+  "label": "VAH/VAL Style",
+  "type": "str",
+  "choices": [
+   "Solid",
+   "Dashed",
+   "Dotted"
+  ]
+ },
+ {
+  "name": "LabelsProfiles",
+  "group": "11. Volume Profile",
+  "order": 177,
+  "label": "Show Labels",
+  "type": "bool"
+ },
+ {
+  "name": "mvp_lb_size",
+  "group": "11. Volume Profile",
+  "order": 178,
+  "label": "Label Size",
+  "type": "str",
+  "choices": [
+   "Tiny",
+   "Small",
+   "Normal",
+   "Large",
+   "Huge"
+  ]
+ },
+ {
+  "name": "mvp_txt_c",
+  "group": "11. Volume Profile",
+  "order": 179,
+  "label": "Label Text Color",
+  "type": "color",
+  "description": "Transparent (the default) uses each line's own color. Pick any color to override."
+ },
+ {
+  "name": "mvp_use_cur_alerts",
+  "group": "11. Volume Profile",
+  "order": 180,
+  "label": "Enable Profile Alerts",
+  "type": "bool"
+ },
+ {
+  "name": "mvp_alert_time",
+  "group": "11. Volume Profile",
+  "order": 181,
+  "label": "Alert Window (CT)",
+  "type": "str",
+  "session": true
+ },
+ {
+  "name": "mvp_show_walls",
+  "group": "12. Volume Profile Walls",
+  "order": 182,
+  "label": "Show Walls",
+  "type": "bool"
+ },
+ {
+  "name": "mvp_c_wall_base",
+  "group": "12. Volume Profile Walls",
+  "order": 183,
+  "label": "Wall Color",
+  "type": "color"
+ },
+ {
+  "name": "mvp_wall_transp",
+  "group": "12. Volume Profile Walls",
+  "order": 184,
+  "label": "Wall Transparency",
+  "type": "int"
+ },
+ {
+  "name": "mvp_w_wall",
+  "group": "12. Volume Profile Walls",
+  "order": 185,
+  "label": "Wall Width",
+  "type": "int"
+ },
+ {
+  "name": "mvp_wall_style",
+  "group": "12. Volume Profile Walls",
+  "order": 186,
+  "label": "Wall Style",
+  "type": "str",
+  "choices": [
+   "Solid",
+   "Dashed",
+   "Dotted"
+  ]
+ },
+ {
+  "name": "mvp_extend_walls",
+  "group": "12. Volume Profile Walls",
+  "order": 187,
+  "label": "Extend Walls",
+  "type": "bool"
+ },
+ {
+  "name": "mvp_smooth_len",
+  "group": "12. Volume Profile Walls",
+  "order": 188,
+  "label": "Smoothing",
+  "type": "int"
+ },
+ {
+  "name": "mvp_min_wall_dist",
+  "group": "12. Volume Profile Walls",
+  "order": 189,
+  "label": "Min Wall Distance (rows)",
+  "type": "int",
+  "description": "Minimum gap between walls, counted in profile rows."
+ },
+ {
+  "name": "mvp_use_auto_scale",
+  "group": "12. Volume Profile Walls",
+  "order": 190,
+  "label": "Use Auto-Scale Threshold",
+  "type": "bool"
+ },
+ {
+  "name": "mvp_scale_start",
+  "group": "12. Volume Profile Walls",
+  "order": 191,
+  "label": "Start Mult",
+  "type": "float",
+  "finite": true
+ },
+ {
+  "name": "mvp_scale_end",
+  "group": "12. Volume Profile Walls",
+  "order": 192,
+  "label": "End Mult",
+  "type": "float",
+  "finite": true
+ },
+ {
+  "name": "mvp_vol_mult",
+  "group": "12. Volume Profile Walls",
+  "order": 193,
+  "label": "Fixed Mult",
+  "type": "float",
+  "finite": true
+ },
+ {
+  "name": "sp_rth_session",
+  "group": "13. TPO & Single Prints",
+  "order": 194,
+  "label": "TPO Session (CT)",
+  "type": "str",
+  "session": true
+ },
+ {
+  "name": "sp_tpo_minutes",
+  "group": "13. TPO & Single Prints",
+  "order": 195,
+  "label": "TPO Period (min)",
+  "type": "int",
+  "min": 1,
+  "max": null
+ },
+ {
+  "name": "sp_ticks_per_block",
+  "group": "13. TPO & Single Prints",
+  "order": 196,
+  "label": "Ticks per Block",
+  "type": "int",
+  "min": 1,
+  "max": null
+ },
+ {
+  "name": "sp_min_ticks",
+  "group": "13. TPO & Single Prints",
+  "order": 197,
+  "label": "Min Single Print Size (ticks)",
+  "type": "int",
+  "description": "Measured from the first to the last block of a single-print run, so the default of 1 needs at least two blocks: the Market Profile convention that a single print takes at least two TPO prices."
+ },
+ {
+  "name": "sp_filter_tails",
+  "group": "13. TPO & Single Prints",
+  "order": 198,
+  "label": "Filter Tails",
+  "type": "bool"
+ },
+ {
+  "name": "sp_tail_max",
+  "group": "13. TPO & Single Prints",
+  "order": 199,
+  "label": "Max Tail Size",
+  "type": "int"
+ },
+ {
+  "name": "sp_max_days",
+  "group": "13. TPO & Single Prints",
+  "order": 200,
+  "label": "Max History Days",
+  "type": "int"
+ },
+ {
+  "name": "sp_color_hist",
+  "group": "13. TPO & Single Prints",
+  "order": 201,
+  "label": "Single Print Color",
+  "type": "color"
+ },
+ {
+  "name": "sp_border_c",
+  "group": "13. TPO & Single Prints",
+  "order": 202,
+  "label": "Border Color",
+  "type": "color"
+ },
+ {
+  "name": "sp_border_w",
+  "group": "13. TPO & Single Prints",
+  "order": 203,
+  "label": "Border Width",
+  "type": "int",
+  "description": "0 = no border.",
+  "min": 0,
+  "max": 4
+ },
+ {
+  "name": "sp_border_style",
+  "group": "13. TPO & Single Prints",
+  "order": 204,
+  "label": "Border Style",
+  "type": "str",
+  "choices": [
+   "Solid",
+   "Dashed",
+   "Dotted"
+  ]
+ },
+ {
+  "name": "sp_show_poor",
+  "group": "13. TPO & Single Prints",
+  "order": 205,
+  "label": "Show Poor Highs/Lows",
+  "type": "bool"
+ },
+ {
+  "name": "sp_col_poor_h",
+  "group": "13. TPO & Single Prints",
+  "order": 206,
+  "label": "Poor High Color",
+  "type": "color"
+ },
+ {
+  "name": "sp_col_poor_l",
+  "group": "13. TPO & Single Prints",
+  "order": 207,
+  "label": "Poor Low Color",
+  "type": "color"
+ },
+ {
+  "name": "sp_poor_width",
+  "group": "13. TPO & Single Prints",
+  "order": 208,
+  "label": "Poor H/L Width",
+  "type": "int"
+ },
+ {
+  "name": "sp_poor_style_in",
+  "group": "13. TPO & Single Prints",
+  "order": 209,
+  "label": "Poor H/L Style",
+  "type": "str",
+  "choices": [
+   "Solid",
+   "Dashed",
+   "Dotted"
+  ]
+ },
+ {
+  "name": "LabelsPoor",
+  "group": "13. TPO & Single Prints",
+  "order": 210,
+  "label": "Show Poor H/L Labels",
+  "type": "bool"
+ },
+ {
+  "name": "sp_poor_lb_size",
+  "group": "13. TPO & Single Prints",
+  "order": 211,
+  "label": "Label Size",
+  "type": "str",
+  "choices": [
+   "Tiny",
+   "Small",
+   "Normal",
+   "Large",
+   "Huge"
+  ]
+ },
+ {
+  "name": "sp_poor_txt_c",
+  "group": "13. TPO & Single Prints",
+  "order": 212,
+  "label": "Label Text Color",
+  "type": "color",
+  "description": "Transparent (the default) uses each line's own color. Pick any color to override."
+ },
+ {
+  "name": "npoc_enable",
+  "group": "14. Naked POCs",
+  "order": 213,
+  "label": "Enable nPOCs",
+  "type": "bool"
+ },
+ {
+  "name": "npoc_d_show",
+  "group": "14. Naked POCs",
+  "order": 214,
+  "label": "Show Daily nPOC",
+  "type": "bool"
+ },
+ {
+  "name": "npoc_w_show",
+  "group": "14. Naked POCs",
+  "order": 215,
+  "label": "Show Weekly nPOC",
+  "type": "bool"
+ },
+ {
+  "name": "npoc_m_show",
+  "group": "14. Naked POCs",
+  "order": 216,
+  "label": "Show Monthly nPOC",
+  "type": "bool"
+ },
+ {
+  "name": "npoc_c",
+  "group": "14. Naked POCs",
+  "order": 217,
+  "label": "Daily Color",
+  "type": "color"
+ },
+ {
+  "name": "npoc_c_w",
+  "group": "14. Naked POCs",
+  "order": 218,
+  "label": "Weekly Color",
+  "type": "color"
+ },
+ {
+  "name": "npoc_c_m",
+  "group": "14. Naked POCs",
+  "order": 219,
+  "label": "Monthly Color",
+  "type": "color"
+ },
+ {
+  "name": "npoc_w_d",
+  "group": "14. Naked POCs",
+  "order": 220,
+  "label": "Daily Width",
+  "type": "int"
+ },
+ {
+  "name": "npoc_w_w",
+  "group": "14. Naked POCs",
+  "order": 221,
+  "label": "Weekly Width",
+  "type": "int"
+ },
+ {
+  "name": "npoc_w_m",
+  "group": "14. Naked POCs",
+  "order": 222,
+  "label": "Monthly Width",
+  "type": "int"
+ },
+ {
+  "name": "npoc_style_in",
+  "group": "14. Naked POCs",
+  "order": 223,
+  "label": "Line Style",
+  "type": "str",
+  "choices": [
+   "Solid",
+   "Dashed",
+   "Dotted"
+  ]
+ },
+ {
+  "name": "amt_vauto",
+  "group": "14. Naked POCs",
+  "order": 224,
+  "label": "Auto Bin Size (tick)",
+  "type": "bool"
+ },
+ {
+  "name": "amt_vres",
+  "group": "14. Naked POCs",
+  "order": 225,
+  "label": "Use Manual Bin Size",
+  "type": "bool"
+ },
+ {
+  "name": "amt_res_val",
+  "group": "14. Naked POCs",
+  "order": 226,
+  "label": "Manual Bin Size",
+  "type": "float",
+  "min": 0.0001,
+  "max": null,
+  "finite": true
+ },
+ {
+  "name": "LabelsNakedPoc",
+  "group": "14. Naked POCs",
+  "order": 227,
+  "label": "Show Labels",
+  "type": "bool"
+ },
+ {
+  "name": "npoc_lb_size",
+  "group": "14. Naked POCs",
+  "order": 228,
+  "label": "Label Size",
+  "type": "str",
+  "choices": [
+   "Tiny",
+   "Small",
+   "Normal",
+   "Large",
+   "Huge"
+  ]
+ },
+ {
+  "name": "npoc_lb_offset",
+  "group": "14. Naked POCs",
+  "order": 229,
+  "label": "Label Offset",
+  "type": "int",
+  "min": -50,
+  "max": 200
+ },
+ {
+  "name": "npoc_txt_c",
+  "group": "14. Naked POCs",
+  "order": 230,
+  "label": "Label Text Color",
+  "type": "color",
+  "description": "Transparent (the default) uses each line's own color. Pick any color to override."
+ },
+ {
+  "name": "npoc_alert",
+  "group": "14. Naked POCs",
+  "order": 231,
+  "label": "Alert nPOC Touch",
+  "type": "bool"
+ },
+ {
+  "name": "inv_enable",
+  "group": "15. Settlement & Inventory",
+  "order": 232,
+  "label": "Enable Inventory Trap Logic",
+  "type": "bool"
+ },
+ {
+  "name": "inv_show_line",
+  "group": "15. Settlement & Inventory",
+  "order": 233,
+  "label": "Show Settlement Line",
+  "type": "bool"
+ },
+ {
+  "name": "inv_start_h",
+  "group": "15. Settlement & Inventory",
+  "order": 234,
+  "label": "Globex Start Hour (CT)",
+  "type": "int",
+  "min": 0,
+  "max": 23
+ },
+ {
+  "name": "inv_end_h",
+  "group": "15. Settlement & Inventory",
+  "order": 235,
+  "label": "RTH Open Hour (CT)",
+  "type": "int",
+  "min": 0,
+  "max": 23
+ },
+ {
+  "name": "inv_end_m",
+  "group": "15. Settlement & Inventory",
+  "order": 236,
+  "label": "RTH Open Minute",
+  "type": "int",
+  "min": 0,
+  "max": 59
+ },
+ {
+  "name": "inv_c_settle",
+  "group": "15. Settlement & Inventory",
+  "order": 237,
+  "label": "Settle Color",
+  "type": "color"
+ },
+ {
+  "name": "inv_settle_width",
+  "group": "15. Settlement & Inventory",
+  "order": 238,
+  "label": "Settle Line Width",
+  "type": "int",
+  "min": 1,
+  "max": 10
+ },
+ {
+  "name": "inv_settle_style",
+  "group": "15. Settlement & Inventory",
+  "order": 239,
+  "label": "Settle Line Style",
+  "type": "str",
+  "choices": [
+   "Solid",
+   "Dashed",
+   "Dotted"
+  ]
+ },
+ {
+  "name": "inv_c_trap",
+  "group": "15. Settlement & Inventory",
+  "order": 240,
+  "label": "Trap Color",
+  "type": "color"
+ },
+ {
+  "name": "inv_width",
+  "group": "15. Settlement & Inventory",
+  "order": 241,
+  "label": "Trap Line Width",
+  "type": "int"
+ },
+ {
+  "name": "inv_style_in",
+  "group": "15. Settlement & Inventory",
+  "order": 242,
+  "label": "Trap Line Style",
+  "type": "str",
+  "choices": [
+   "Solid",
+   "Dashed",
+   "Dotted"
+  ]
+ },
+ {
+  "name": "inv_txt_trap",
+  "group": "15. Settlement & Inventory",
+  "order": 243,
+  "label": "Trap Text",
+  "type": "str"
+ },
+ {
+  "name": "LabelsInventory",
+  "group": "15. Settlement & Inventory",
+  "order": 244,
+  "label": "Show Labels",
+  "type": "bool"
+ },
+ {
+  "name": "inv_lb_size_in",
+  "group": "15. Settlement & Inventory",
+  "order": 245,
+  "label": "Label Size",
+  "type": "str",
+  "choices": [
+   "Tiny",
+   "Small",
+   "Normal",
+   "Large"
+  ]
+ },
+ {
+  "name": "inv_offset",
+  "group": "15. Settlement & Inventory",
+  "order": 246,
+  "label": "Label Offset",
+  "type": "int"
+ },
+ {
+  "name": "inv_txt_c",
+  "group": "15. Settlement & Inventory",
+  "order": 247,
+  "label": "Label Text Color",
+  "type": "color",
+  "description": "Transparent (the default) uses each line's own color. Pick any color to override."
+ },
+ {
+  "name": "inv_alert",
+  "group": "15. Settlement & Inventory",
+  "order": 248,
+  "label": "Alert Trap Detected",
+  "type": "bool"
+ },
+ {
+  "name": "showSpike",
+  "group": "16. Late Spike",
+  "order": 249,
+  "label": "Show Late Spike",
+  "type": "bool"
+ },
+ {
+  "name": "spikeTimeRange",
+  "group": "16. Late Spike",
+  "order": 250,
+  "label": "Spike Window (CT)",
+  "type": "str",
+  "session": true
+ },
+ {
+  "name": "spike_c_sup",
+  "group": "16. Late Spike",
+  "order": 251,
+  "label": "Support Color",
+  "type": "color"
+ },
+ {
+  "name": "spike_c_res",
+  "group": "16. Late Spike",
+  "order": 252,
+  "label": "Resistance Color",
+  "type": "color"
+ },
+ {
+  "name": "spike_width",
+  "group": "16. Late Spike",
+  "order": 253,
+  "label": "Line Width",
+  "type": "int"
+ },
+ {
+  "name": "spike_style",
+  "group": "16. Late Spike",
+  "order": 254,
+  "label": "Line Style",
+  "type": "str",
+  "choices": [
+   "Solid",
+   "Dashed",
+   "Dotted"
+  ]
+ },
+ {
+  "name": "LabelsSpike",
+  "group": "16. Late Spike",
+  "order": 255,
+  "label": "Show Labels",
+  "type": "bool"
+ },
+ {
+  "name": "spike_lbl_size",
+  "group": "16. Late Spike",
+  "order": 256,
+  "label": "Label Size",
+  "type": "str",
+  "choices": [
+   "Tiny",
+   "Small",
+   "Normal",
+   "Large"
+  ]
+ },
+ {
+  "name": "spike_offset",
+  "group": "16. Late Spike",
+  "order": 257,
+  "label": "Label Offset",
+  "type": "int"
+ },
+ {
+  "name": "spike_txt_c",
+  "group": "16. Late Spike",
+  "order": 258,
+  "label": "Label Text Color",
+  "type": "color",
+  "description": "Transparent (the default) uses each line's own color. Pick any color to override."
+ },
+ {
+  "name": "spike_alert",
+  "group": "16. Late Spike",
+  "order": 259,
+  "label": "Alert Spike Base Test",
+  "type": "bool"
+ },
+ {
+  "name": "tbl_show",
+  "group": "17. Dashboard",
+  "order": 260,
+  "label": "Show Dashboard",
+  "type": "bool"
+ },
+ {
+  "name": "tbl_pos",
+  "group": "17. Dashboard",
+  "order": 261,
+  "label": "Position",
+  "type": "str",
+  "choices": [
+   "Top Right",
+   "Top Left",
+   "Bottom Right",
+   "Bottom Left",
+   "Middle Right",
+   "Middle Left"
+  ]
+ },
+ {
+  "name": "tbl_size",
+  "group": "17. Dashboard",
+  "order": 262,
+  "label": "Text Size",
+  "type": "str",
+  "choices": [
+   "Tiny",
+   "Small",
+   "Normal",
+   "Large"
+  ]
+ },
+ {
+  "name": "tbl_session",
+  "group": "17. Dashboard",
+  "order": 263,
+  "label": "Table RTH Session (CT)",
+  "type": "str",
+  "session": true
+ },
+ {
+  "name": "context_session",
+  "group": "17. Dashboard",
+  "order": 264,
+  "label": "Context Tracking Session (CT)",
+  "type": "str",
+  "session": true
+ },
+ {
+  "name": "daily_atr_length",
+  "group": "17. Dashboard",
+  "order": 265,
+  "label": "Daily ATR Period",
+  "type": "int"
+ },
+ {
+  "name": "alertcap_enable",
+  "group": "18. Alerts",
+  "order": 266,
+  "label": "Enable Alert Storm Cap",
+  "type": "bool"
+ },
+ {
+  "name": "alertcap_max",
+  "group": "18. Alerts",
+  "order": 267,
+  "label": "Max Alerts per Window",
+  "type": "int",
+  "min": 5,
+  "max": 200
+ },
+ {
+  "name": "alertcap_window_min",
+  "group": "18. Alerts",
+  "order": 268,
+  "label": "Window (minutes)",
+  "type": "int",
+  "min": 5,
+  "max": 1440
+ },
+ {
+  "name": "LevelAlertMode",
+  "group": "18. Alerts",
+  "order": 269,
+  "label": "Level Alert Mode",
+  "type": "str",
+  "description": "Choose crosses, entries into a price band, or both. This applies to enabled level-cross alert categories. Touch, inventory and 80% rule alerts keep their own behavior.",
+  "choices": [
+   "Cross",
+   "Zone Entry",
+   "Both"
+  ]
+ },
+ {
+  "name": "AlertZoneTicks",
+  "group": "18. Alerts",
+  "order": 270,
+  "label": "Structure Alert Zone Half-Width (ticks)",
+  "type": "int",
+  "description": "Half-width for structural level alert bands in actual instrument ticks. Pasted/file daily levels use their own configured ATR/tick zone width.",
+  "min": 1,
+  "max": 1000
+ },
+ {
+  "name": "MaxProfileRows",
+  "group": "20. NinjaTrader Limits",
+  "order": 275,
+  "label": "Maximum Rows per Profile / TPO",
+  "type": "int",
+  "min": 200,
+  "max": 100000
+ },
+ {
+  "name": "MaxStructures",
+  "group": "20. NinjaTrader Limits",
+  "order": 276,
+  "label": "Maximum Retained Structures",
+  "type": "int",
+  "min": 100,
+  "max": 2000
+ }
+]

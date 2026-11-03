@@ -1,0 +1,30 @@
+"""A feed plugin: copy this file to my_feed.py (same folder), fill in run(), restart the server
+(docker compose restart), then Connections > Futures feed > + > My broker. Guide: docs/FEEDS.md."""
+import asyncio
+
+from chartsrv.feeds.sdk import FeedPlugin, number, secret, text
+
+
+class MyBroker(FeedPlugin):
+    TITLE = "My broker"                      # its name in Connections
+    KIND = "futures"                         # "futures" (trades for chart instruments) or "quotes" (watchlist quotes)
+    ABOUT = "Trades from My broker's market data API. Needs an account with API access."
+    FIELDS = [secret("username", "Username"),
+              secret("password", "Password"),
+              text("server", "Server", "the API's address", default="md.example.com"),
+              number("port", "Port", default=443, min=1, max=65535)]
+
+    async def run(self, market):
+        # self.values: what was typed in Connections, by key. self.symbols: the chart symbols this feed supplies.
+        # 1. connect and sign in (with an async library, or asyncio.to_thread for a blocking one)
+        # 2. self.connected() once it works
+        # 3. for each trade: self.trade(market, symbol, epoch_ms, price, size, side)   side: 1 buy, -1 sell, 0 unknown
+        # 4. raise when the connection drops: the app runs this again 10 s later
+        self.connected()
+        while True:
+            await asyncio.sleep(1)
+
+    @classmethod
+    async def test(cls, values):
+        # Optional: Connections > Test, with the fields as typed. Return (ok, message); never put a key in the message.
+        return True, "Looks fine"
