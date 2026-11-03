@@ -12,14 +12,24 @@ TradingView:
   backs out), or Alt+click, does the same. Phone: hold a finger on the chart until the crosshair shows, lift it, then tap the **+** (it stays 3 s; the crosshair
   ends when the finger lifts, so a drag after it always moves the chart).
 - **Create alert…** (same menu, **Alt+A**, or **+ Create alert** in the Alerts tab) opens the dialog:
-  - **Condition**: Price, Session VWAP, RTH VWAP, POC, VAH, VAL, or Daily levels.
+  - **Condition**: Price, Session VWAP, RTH VWAP, POC, VAH, VAL, Daily levels, or an indicator (the **Indicators**
+    groups below them).
   - For price: Crossing, Crossing up, Crossing down, Greater than, Less than (fires while price is past it),
     Entering channel, Exiting channel (two prices).
   - For a VWAP: the line or a ±1/2/3σ band. For POC/VAH/VAL: the ETH or RTH profile, developing or previous (this
     app's own 70% session profiles, not the Tatanka Session Volume Profile).
     Studies and daily levels fire on a touch within *Touch within* ticks, then re-arm once price has moved 8 ticks
     beyond that band. The levels are the ones the chart draws, kept running on the server.
-  - **Trigger**: Only once (it stops after firing) or Every time (price alerts at most once a minute).
+  - **Indicator alerts**, as TradingView's: any indicator with a line (EMA, SMA, RSI, MACD, Stochastics, Bollinger
+    Bands, CCI, ADX and the rest), with its own settings and the line to watch (MACD or its signal line, a band). It
+    runs on its own timeframe, 1m to 1D, whatever the chart shows (on regular hours when the chart is set to RTH).
+    It is compared with the price, a value, or another of its lines: an oscillator starts at its overbought level
+    (RSI 70), MACD and Stochastics at their signal line, the rest at the price. **Check**: **Bar close** (when each
+    bar closes; TradingView's Once Per Bar Close) or **Intrabar** (the first trade that meets it; Once Per Bar). The
+    server uses the chart's formulas (NinjaTrader's), so an alert fires on the value the chart shows, with no chart
+    open.
+  - **Trigger**: Only once (it stops after firing) or Every time (price alerts at most once a minute, indicator
+    alerts at most once a bar).
   - **Expiration**: **Open-ended** (the default: it stays armed until you delete it) or **Until…** a date and time
     (Chicago) when it switches itself off. **Message** is added to the notification.
 - **On the chart**: each active price alert is a dashed line with a 🔔 label and an axis tag (a channel shows both
