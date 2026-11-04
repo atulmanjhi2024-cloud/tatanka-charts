@@ -353,7 +353,7 @@ def test_amt_first_ready_message_after_no_bars_has_the_style():
     from chartsrv.amt_runner import AmtRunner
     from chartsrv.market import Client
     from amt_parity import synth
-    hub = AmtHub(SimpleNamespace(store=SimpleNamespace(get_setting=lambda k, d=None: d)))
+    hub = AmtHub(SimpleNamespace(store=SimpleNamespace(get_setting=lambda k, d=None: d, set_setting=lambda k, v: None), instruments={}))
     e, client = AmtEntry(AmtRunner("ES", 0.25, 5, amt.Settings())), Client()
     first = hub._message(e, client, 1, full=True)   # a symbol with no 1-minute bars yet
     assert first["data"] == {"ready": False}

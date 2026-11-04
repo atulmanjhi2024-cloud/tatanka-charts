@@ -1349,7 +1349,7 @@ candles.attachPrimitive(tpoPrim);
 
 // ---- Tatanka AMT Toolkit: computed on the server by the ported engine, drawn here ----------------
 S.amt = null;
-S.amtServer = { defaults: {}, overrides: {}, alerts: {} };
+S.amtServer = { defaults: {}, overrides: {}, symbols: {}, alerts: {} };
 const specSeconds = (spec) => { const n = parseInt(spec, 10), u = spec.slice(-1); return u === 's' ? n : u === 'm' ? n * 60 : u === 'h' ? n * 3600 : ({ D: 1, W: 7, M: 31 }[u] || 0) * 86400 * n; };
 // The Toolkit runs on 1-30 minute bars: minute charts use their size, longer ones 30, tick/range/volume 5.
 function amtMinutes() { const u = S.spec.slice(-1); return u === 's' ? 1 : u === 'm' ? Math.max(1, Math.min(30, parseInt(S.spec, 10))) : 'hDWM'.includes(u) ? 30 : 5; }
@@ -1376,13 +1376,18 @@ function amtLayout() {
   ts.applyOptions({ rightOffset: ro });
   if (back) ts.setVisibleLogicalRange(lr);
 }
-// The chart's Toolkit settings: the server's starting ones with the open tab's on top (tabSet). The alerts and the
-// levels file are the server's on every chart (one runner per symbol alerts; the levels are the symbol's).
+// The chart's Toolkit settings: the server's starting ones with the open tab's on top (tabSet). The alert settings
+// are the server's for the chart's symbol, the same on every chart of it (one runner per symbol alerts), and the levels
+// file the server's on every chart (the levels are the symbol's): never a tab's own.
 const amtShared = () => new Set(S.amtServer.shared || []);
+const amtBySymbol = () => new Set(S.amtServer.per_symbol || []);
 const pickSet = (o, keys, keep) => Object.fromEntries(Object.entries(o || {}).filter(([k]) => keys.has(k) === keep));
 const amtOwn = () => pickSet(tabSet().amt, amtShared(), false);
-const amtEff = () => ({ ...(S.amtServer.overrides || {}), ...amtOwn() });
-// What the server runs this chart's Toolkit on: '' the shared settings (no set sent: whatever the server's are now), else
+// What a chart of the symbol starts from: every chart's starting settings with the symbol's alert settings (a symbol
+// with none: NinjaTrader's).
+const amtStart = (sym = S.symbol) => ({ ...(S.amtServer.overrides || {}), ...(S.amtServer.symbols?.[sym] || {}) });
+const amtEff = () => ({ ...amtStart(), ...amtOwn() });
+// What the server runs this chart's Toolkit on: '' the symbol's starting settings (no set sent: whatever the server's are now), else
 // the chart's own; '?' its own, asked for before the server's settings had come (asked again when they do).
 const amtKey = () => (Object.keys(amtOwn()).length ? JSON.stringify(amtEff()) : '');
 let amtSent = '';
@@ -1513,11 +1518,21 @@ function amtTzWarning() {
 const amtValue = (k) => { const o = amtEff(); return (k in o ? o : S.amtServer.defaults || {})[k]; };
 document.querySelectorAll('#amt-period button').forEach((b) => {
   b.onclick = () => {   // this chart's, as the dialog's Profile Timeframe
-    const own = { ...amtOwn() }, start = { ...(S.amtServer.defaults || {}), ...(S.amtServer.overrides || {}) };
+    const own = { ...amtOwn() }, start = { ...(S.amtServer.defaults || {}), ...amtStart() };
     if (b.dataset.v === start.mvp_tf_mode) delete own.mvp_tf_mode; else own.mvp_tf_mode = b.dataset.v;
     tabSetSave('amt', own);
   };
 });
+// Saves changes to the server's AMT settings (only what changed is sent, over the server's as they are then): the alert
+// settings the symbol's, for every chart of it (another symbol's charts keep theirs); the rest every chart's (the levels
+// file; on Apply to all charts every setting shown). A chart of no instrument (no AMT alerts) has no alert settings.
+async function amtPatch(d, sym = S.symbol) {
+  const own = S.instruments[sym];
+  if (!own && Object.keys(pickSet(d, amtBySymbol(), true)).length) {
+    throw new Error(`The AMT alert settings are each instrument's and ${sym} is not one: change them on an instrument's chart`);
+  }
+  await api('PATCH', own ? `/api/amt/settings?symbol=${encodeURIComponent(sym)}` : '/api/amt/settings', d);
+}
 $('#amt-alerts').onchange = async (e) => {
   const on = e.target.checked;
   try {
@@ -1749,31 +1764,37 @@ $('#gap-alerts').onchange = async (e) => {
   renderGapMenu();   // the box too: a GET's answer meanwhile may have set it back
 };
 
-// An alert switch a chart turned off in its own settings before the switches were every chart's (the AMT Toolkit's, Gap
-// Analysis'): moved to the shared settings once, off only (it silences, never turns an alert on), and then every shared
-// setting leaves the chart's own, where nothing reads it. Each chart does its own tabs, another workspace's when it opens.
-// The gap alert switches the server turned off at its first start (S.gapNotice) are said too, by the one page that
-// claims them.
+// An alert switch a chart turned off in its own settings before the switches were shared (the AMT Toolkit's, its
+// symbol's on every chart of it; Gap Analysis', every chart's): moved to the shared settings once, the AMT Toolkit's to
+// the symbols of the tabs that had it (a tab's own set: its symbol; the chart's shared set: its linked tabs'), off only
+// (it silences, never turns an alert on), and then every shared setting leaves the chart's own, where nothing reads
+// it. Each chart does its own tabs, another workspace's when it opens. The gap alert switches the server turned off at
+// its first start (S.gapNotice) are said too, by the one page that claims them.
 let sharedMoved = false;
 async function moveSharedOut() {
   if (sharedMoved || TK_MULTI || !S.amtServer.schema || !S.gapSwitches) return;   // a layout's page has no tabs of its own
-  const amtSh = amtShared(), amtNow = { ...(S.amtServer.defaults || {}), ...(S.amtServer.overrides || {}) };
+  const amtSh = amtShared(), amtNow = (sym) => ({ ...(S.amtServer.defaults || {}), ...amtStart(sym) });
   const own = (set) => Object.keys(set.amt || {}).some((k) => amtSh.has(k)) || Object.keys(set.gap || {}).some((k) => GAP_SHARED.has(k));
-  const sets = [...S.tabs.map((t) => t.own?.set).filter(Boolean), S.sharedSet];
+  const linked = [...new Set(S.tabs.filter((t) => t.link).map((t) => t.sym))];
+  const sets = [...S.tabs.filter((t) => t.own?.set).map((t) => [t.own.set, [t.sym]]), [S.sharedSet, linked]];   // [set, its symbols]
   sharedMoved = true;
-  const moved = sets.some(own);
+  const moved = sets.some(([set]) => own(set));
   if (!moved && !S.gapNotice.length) return;
   // the Alert switches (not the storm cap: off, it sends more)
   const silent = new Map(S.amtServer.schema.filter((x) => x.type === 'bool' && /alert/i.test(x.name) && !x.group.startsWith('18.'))
     .map((x) => [x.name, `${x.group.replace(/^\d+\. /, '')}: ${x.label}`]));
-  const amtOff = {}, gapOff = {};
+  const amtOff = {}, gapOff = {};   // amtOff: symbol -> its switches to turn off
   let said = [];
-  for (const set of sets) {
-    for (const [k, v] of Object.entries(set.amt || {})) if (v === false && silent.has(k) && amtNow[k] === true) amtOff[k] = false;
+  for (const [set, syms] of sets) {
+    for (const [k, v] of Object.entries(set.amt || {})) {
+      if (v !== false || !silent.has(k)) continue;
+      for (const sym of syms) if (S.instruments[sym] && amtNow(sym)[k] === true) (amtOff[sym] ||= {})[k] = false;
+    }
     for (const [k, v] of Object.entries(set.gap || {})) if (v === false && k in GAP_SWITCH && S.gapSwitches[GAP_SWITCH[k]] !== false) gapOff[GAP_SWITCH[k]] = false;
   }
   try {
-    if (Object.keys(amtOff).length) { await api('PATCH', '/api/amt/settings', amtOff); await loadAmtServer(); }
+    for (const [sym, off] of Object.entries(amtOff)) await amtPatch(off, sym);
+    if (Object.keys(amtOff).length) await loadAmtServer();
     if (Object.keys(gapOff).length) S.gapSwitches = (await api('PUT', '/api/gaps/alerts', gapOff)).switches || S.gapSwitches;
     if (S.gapNotice.length) said = (await api('DELETE', '/api/gaps/alerts/notice')).notice || [];
   } catch { sharedMoved = false; return; }   // kept as they are: tried again at the next hello
@@ -1786,12 +1807,15 @@ async function moveSharedOut() {
   if (moved) saveTabs();
   if (own(S.sharedSet)) { S.sharedSet = drop(S.sharedSet); local.set('indSet', JSON.stringify(S.sharedSet)); }
   const gapName = (k) => (k === 'new' ? 'Gap Analysis: Alert on new gap' : 'Gap Analysis: Alert on full gap fill');
-  const names = [...Object.keys(amtOff).map((k) => `AMT ${silent.get(k)}`), ...Object.keys(gapOff).map(gapName)];
+  const gapNames = Object.keys(gapOff).map(gapName);
   const before = said.filter((k) => S.gapSwitches[k] === false).map(gapName);   // not one ticked again since
   const it = (a) => (a.length > 1 ? 'them' : 'it');
-  const why = [names.length && `Off on every chart, as this chart had ${it(names)}: ${names.join('; ')}.`,
-    before.length && `Off on every chart, as the gap alerts had ${it(before)} before: ${before.join('; ')}.`].filter(Boolean);
-  if (why.length) toast(`Alert switches are the same on every chart now. ${why.join(' ')}`, 10000);
+  const why = [...Object.entries(amtOff).map(([sym, off]) => {   // the AMT Toolkit's: the symbol's charts
+    const names = Object.keys(off).map((k) => `AMT ${silent.get(k)}`);
+    return `Off on every ${sym} chart, as this chart had ${it(names)}: ${names.join('; ')}.`;
+  }), gapNames.length && `Off on every chart, as this chart had ${it(gapNames)}: ${gapNames.join('; ')}.`,
+  before.length && `Off on every chart, as the gap alerts had ${it(before)} before: ${before.join('; ')}.`].filter(Boolean);
+  if (why.length) toast(`Alert switches are shared now: the AMT Toolkit's by every chart of a symbol, Gap Analysis' by every chart. ${why.join(' ')}`, 10000);
 }
 
 // ---- HTF EMA --------------------------------------------------------------------------------------------------
@@ -2122,7 +2146,7 @@ const LVL_TEXT = { name: 'lvl_text', group: '2. Daily Levels', order: 9, label: 
   description: "This symbol's levels: the one-line paste (2026-09-30, pivot, prices...) or the Pivot Level / Resistance Levels / Support Levels block. Used when no levels file or link has levels. Also on the Plan tab." };
 const IND_ORDER = ['amt', 'ifthen', 'lines', 'tpo', 'gap', 'hema', 'dsma', ...VP_KINDS];
 const IND_NOTES = {
-  amt: 'Runs on the server for every device. All session fields are Central exchange time. The alert settings (the Alerts group, every Alert switch and the level zone width) and the levels file are the same on every chart (one alert runner per symbol), and presets leave them as they are. The alerts follow their Alert switches only: a group\'s Enable switch only shows or hides it on this chart.',
+  amt: 'Runs on the server for every device. All session fields are Central exchange time. The alert settings (the Alerts group, every Alert switch and the level zone width, marked with the symbol) are the symbol\'s: the same on every chart of it (one alert runner per symbol), while another symbol\'s charts keep theirs, also on Apply to all charts. The levels file is the same on every chart. Presets leave both as they are. The alerts follow their Alert switches only: a group\'s Enable switch only shows or hides it on this chart.',
   ifthen: "The block and the instrument label are this symbol's; the block is also on the Plan tab.",
   lines: "The range and the custom levels are this symbol's; they are also on the Plan tab.",
   gap: 'How many days it scans is in the Studies menu (History). The alert switches are the same on every chart (the server\'s gap alerts), and presets leave them as they are.',
@@ -2139,19 +2163,21 @@ function indAdapter(key) {
     const sch = [...(S.amtServer.schema || [])];
     const i = sch.findIndex((x) => x.group === LVL_TEXT.group && x.order > LVL_TEXT.order);
     sch.splice(i < 0 ? sch.length : i, 0, LVL_TEXT);
-    const shared = amtShared(), server = () => S.amtServer.overrides || {};
-    // the chart's settings over the starting ones; the shared ones (alerts, levels file) as the server has them now, so
-    // the draft holds only those changed here, and only those are sent (over the server's as they are then)
+    const shared = amtShared(), server = () => amtStart();
+    // the chart's settings over the starting ones; the shared ones (the symbol's alert settings, the levels file) as the
+    // server has them now, so the draft holds only those changed here, and only those are sent (over the server's as
+    // they are then)
     return {
       key, title: 'AMT Toolkit', version: S.amtServer.version, colorFormat: 'argb', note: `${IND_NOTES.amt}${whose}`,
       shown: () => !!S.st.amt, show: (on) => setStudy('amt', on),
       schema: () => sch, defaults: () => ({ ...(S.amtServer.defaults || {}), ...server() }),
       ntDefaults: () => S.amtServer.defaults || {}, overrides: () => amtOwn(), sharedNames: shared,
+      symbolShared: amtBySymbol(), allNote: () => ` The alert settings go to every ${S.symbol} chart only: each symbol keeps its own.`,
       symbolNames: ['lvl_text'], perSymbol: () => ({ lvl_text: S.lvStatus?.paste ?? '' }), symbolDefault: () => '',
       async save(d, s) {
         const mine = pickSet(d, shared, false), all = pickSet(d, shared, true);
-        if (Object.keys(all).length) {   // the alerts or the levels file changed: every chart's
-          await api('PATCH', '/api/amt/settings', all);
+        if (Object.keys(all).length) {   // the alert settings (every chart of this symbol) or the levels file (every chart)
+          await amtPatch(all);
           await loadAmtServer();
         }
         if (!same(mine, amtOwn())) {   // checked as the Toolkit does, then kept by the chart
@@ -2162,7 +2188,8 @@ function indAdapter(key) {
         else if ('LevelsFile' in d || 'LevelsFile' in server()) setTimeout(loadPlanLevels, 6000);   // read on the next check
       },
       async applyAll(d) {   // every chart: these become the starting settings, and no chart keeps its own
-        await api('PATCH', '/api/amt/settings', d);   // over the server's as they are now: the shared ones changed here only
+        // over the server's as they are now: the shared ones changed here only, the alert settings this symbol's
+        await amtPatch(d);
         await loadAmtServer();
       },
     };
@@ -3303,6 +3330,7 @@ function onSymbolChanged() {
   applyStudyVisibility();
   drawLevels(); alertPrim.update(); watch.markActive();
   renderAmtMenu();
+  indDlg.refresh();   // an open Indicators dialog: the symbol's own settings (the AMT Toolkit's alert settings too)
 }
 function setSpec(spec) {
   if (!SPEC_RE.test(spec)) { toast(`Bad bar type "${spec}". Use 5m, 4h, 1D, 1W, 1M, 2000t, 5000v, 16r`); return; }
@@ -5450,11 +5478,11 @@ function onMessage(m) {
     case 'bars': if (m.id === S.subId) applyBars(m); else cmpBars(m); break;
     case 'amt': if (m.id === S.subId && S.st.amt) amtMerge(m); break;
     case 'amt_reset': if (m.id === S.subId) { amtSent = 'reset'; loadAmtServer(); } break;   // the starting settings changed: asked again with them
-    case 'amt_settings':   // the shared settings or a symbol's alert switch changed (here, on another chart or device)
+    case 'amt_settings':   // the starting settings, a symbol's alert settings or its alert switch changed (here, on another chart or device)
       amtHeard += 1;
-      S.amtServer = { ...S.amtServer, overrides: m.overrides || {}, alerts: m.alerts || {} };
+      S.amtServer = { ...S.amtServer, overrides: m.overrides || {}, symbols: m.symbols || {}, alerts: m.alerts || {} };
       renderAmtMenu();
-      amtFollow();   // a chart on its own settings: they sit on the shared ones
+      amtFollow();   // a chart on its own settings: they sit on its symbol's starting ones
       indDlg.refresh();
       break;
     case 'gap_alerts':   // a symbol's gap alerts or the alert switches changed
@@ -7161,6 +7189,8 @@ function hostActive(m) {
   S.spec = m.spec;
   watch.markActive();
   indSets();
+  renderAmtMenu();   // the symbol's AMT alert switch and alert settings
+  indDlg.refresh();
   renderPlanLines(true);
   S.lvStatus = null;
   loadPlanLevels();

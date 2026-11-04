@@ -120,7 +120,9 @@ def test_amt_settings_and_alert_switches(client):
     # NinjaTrader's defaults are not stored as changes; the property grid's checks and ValidateSettings' apply
     ok = {"mvp_tf_mode": "Weekly", "LevelAlertMode": "Both", "vwap_enable": True, "vwap_col": 0xFF00FF00, "mvp_val_pct": 70.0,
           "ib_session": "0830-0900", "LevelsFile": "%USERPROFILE%\\Documents\\Tatanka\\levels\\{root}.txt", "tzguard_enable": False}
-    assert client.put("/api/amt/settings", json=ok).json()["overrides"] == {k: v for k, v in ok.items() if k != "mvp_tf_mode"}
+    r = client.put("/api/amt/settings", json=ok).json()   # the alert settings every symbol's (no ?symbol=), the rest every chart's
+    assert r["overrides"] == {k: v for k, v in ok.items() if k not in ("mvp_tf_mode", "LevelAlertMode")}
+    assert r["symbols"]["ES"] == r["symbols"]["NQ"] == {"LevelAlertMode": "Both"}
     for bad, msg in [({"alertcap_max": 300}, "exceeds its maximum (200)"), ({"tick_auto": "yes"}, "expected bool"),
                      ({"row_scale": "3x"}, "Invalid Profile Row Scale"), ({"ib_session": "8:30-9:30"}, "HHmm-HHmm"),
                      ({"mvp_calc_tf": "45"}, "Calc Precision"), ({"vwap_col": -1}, "not a color"),
@@ -129,7 +131,7 @@ def test_amt_settings_and_alert_switches(client):
         r = client.put("/api/amt/settings", json=bad)
         assert r.status_code == 400 and msg in r.json()["detail"], (bad, r.json())
     d = client.get("/api/amt").json()
-    assert d["overrides"]["LevelAlertMode"] == "Both" and len(d["schema"]) == 271
+    assert d["symbols"]["ES"]["LevelAlertMode"] == "Both" and len(d["schema"]) == 271
     assert {x["name"] for x in d["schema"]} == set(d["defaults"]) - {"lvl_text"}
     assert next(x for x in d["schema"] if x["name"] == "row_scale")["choices"][0] == "Auto"
 
@@ -172,7 +174,7 @@ def test_cl_runs_at_its_own_regular_hours():
     from chartsrv.config import Instrument
     hub = amt_hub.AmtHub.__new__(amt_hub.AmtHub)
     hub.m = SimpleNamespace(instruments={"CL": Instrument("CL", "Crude", 0.01, 1000, "CL", rth=("08:00", "13:30"), calendar="energy")})
-    hub.overrides, hub._settings = {}, amt_hub.engine_settings({})
+    hub._set({}, {})   # every chart's settings and the symbols' alert settings at the defaults
     s = hub.settings_for("CL")
     assert (s.ib_session, s.amt_sess, s.pd_sess_time, s.ib_stop_time) == ("0800-0900", "1700-0800:123456", "0800-1330", "0800-1330")
     r = AmtRunner("CL", 0.01, 5, s, rth_session=sessions.move_session("0830-1500", sessions.rth_mover(("08:00", "13:30"))))

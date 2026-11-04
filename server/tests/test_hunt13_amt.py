@@ -160,7 +160,7 @@ function Option(text, value) { this.text = text; this.value = value; }
 var document = { createElement: (t) => el(t), activeElement: null, querySelectorAll: () => [] }, window = { innerWidth: 1400 };
 /*IND*/
 var TK_MULTI = false, ids = {}, $ = (q) => (ids[q] ||= el()), local = { get: (k, d) => d, set() {} };
-var S = { symbol: 'ES', spec: '5m', st: { amt: true, gap: true }, instruments: { ES: { rth: ['08:30', '15:00'] } },
+var S = { symbol: 'ES', spec: '5m', st: { amt: true, gap: true }, instruments: { ES: { rth: ['08:30', '15:00'] }, NQ: { rth: ['08:30', '15:00'] } },
   ind: { schema: { gap: GAP_SCHEMA }, overrides: {}, symbols: {}, per_symbol: {} }, amtServer: {}, lvStatus: { paste: '' },
   gaps: { gaps: [] }, gapError: '', gapAlerts: {}, tabs: [], sharedSet: {},
   gapSet: { RthStart: 83000, RthEnd: 150000, MinimumGapPoints: 0, AlertOnNewGap: true, AlertOnGapFill: true, EnabledAnalysis: true, days: 90 } };
@@ -188,23 +188,34 @@ var applyAll = async () => { await root.sel['.ind-all'].onclick(); };
 var preset = async (v) => { await root.sel['.ind-tpl'].onchange({ target: { value: v } }); };
 var hello = async () => { await loadAmtServer(); await loadGapAlerts(); };
 """
-PAGE_PARTS = ["LVL_TEXT", "IND_NOTES", "same", "amtShared", "pickSet", "amtOwn", "amtEff", "amtValue", "amtMinutes", "renderAmtMenu",
-              "indDefaults", "indAdapter", "amtHeard", "loadAmtServer", "GAP_SWITCH", "GAP_SHARED", "gapShown", "hhmm", "gapRth",
+PAGE_PARTS = ["LVL_TEXT", "IND_NOTES", "same", "amtShared", "amtBySymbol", "pickSet", "amtOwn", "amtStart", "amtEff", "amtValue",
+              "amtMinutes", "renderAmtMenu", "amtPatch", "indDefaults", "indAdapter", "amtHeard", "loadAmtServer", "GAP_SWITCH",
+              "GAP_SHARED", "gapShown", "hhmm", "gapRth",
               "gapRthOk", "GAP_RTH_BAD", "gapAlertsPut", "renderGapInfo", "renderGapMenu", "loadGapAlerts", "gapAlertsFollow",
               "sharedMoved", "moveSharedOut", "onMessage"]
-# The server, as app.py has it: PUT /api/amt/settings replaces the shared settings, PATCH merges what it is given (a value
-# at its default goes); PUT /api/gaps/alerts gives what it is given to every symbol's alerts and the alert switches;
-# DELETE /api/gaps/alerts/notice hands the switches the first start turned off to the first page that asks.
+# The server, as app.py has it: PUT /api/amt/settings replaces the settings, PATCH merges what it is given (a value at
+# its default goes), the alert settings (PER_SYMBOL) those of ?symbol= (with none, every symbol's) in SRV.syms, the
+# rest every chart's in SRV.amt; PUT /api/gaps/alerts gives what it is given to every symbol's alerts and the alert
+# switches; DELETE /api/gaps/alerts/notice hands the switches the first start turned off to the first page that asks.
 DRIVER_JS = r"""
 const vm = require('vm');
-const SRV = { amt: {}, alerts: {}, gap: {}, switches: { new: true, fill: true }, notice: [] };
+const SRV = { amt: {}, syms: {}, alerts: {}, gap: {}, switches: { new: true, fill: true }, notice: [] };
 const calls = [], copy = (x) => JSON.parse(JSON.stringify(x));
 const clean = (o) => Object.fromEntries(Object.entries(o).filter(([k, v]) => JSON.stringify(v) !== JSON.stringify(DEFAULTS[k])));
 const api = async (method, path, body) => {
   if (method !== 'GET') calls.push([method, path, body && copy(body)]);
-  if (path === '/api/amt') return copy({ schema: SCHEMA, defaults: DEFAULTS, overrides: SRV.amt, shared: SHARED, version: '1.1.0', alerts: SRV.alerts });
-  if (path === '/api/amt/settings') { SRV.amt = clean(method === 'PATCH' ? { ...SRV.amt, ...body } : body); return { overrides: copy(SRV.amt) }; }
-  if (path === '/api/amt/settings/check') return { overrides: body };
+  const [at, query] = path.split('?'), sym = new URLSearchParams(query || '').get('symbol');
+  if (at === '/api/amt') {
+    return copy({ schema: SCHEMA, defaults: DEFAULTS, overrides: SRV.amt, symbols: SRV.syms, shared: SHARED, per_symbol: PER_SYMBOL,
+      version: '1.1.0', alerts: SRV.alerts });
+  }
+  if (at === '/api/amt/settings') {
+    const part = (alerts) => Object.fromEntries(Object.entries(body).filter(([k]) => PER_SYMBOL.includes(k) === alerts));
+    SRV.amt = clean(method === 'PATCH' ? { ...SRV.amt, ...part(false) } : part(false));
+    for (const s of sym ? [sym] : ['ES', 'NQ']) SRV.syms[s] = clean(method === 'PATCH' ? { ...(SRV.syms[s] || {}), ...part(true) } : part(true));
+    return copy({ overrides: SRV.amt, symbols: SRV.syms });
+  }
+  if (at === '/api/amt/settings/check') return { overrides: body };
   if (path === '/api/gaps/alerts' && method === 'GET') return copy({ alerts: SRV.gap, switches: SRV.switches, watches: {}, notice: SRV.notice });
   if (path === '/api/gaps/alerts/notice') { const notice = SRV.notice; SRV.notice = []; return { notice }; }
   if (path === '/api/gaps/alerts') {
@@ -215,11 +226,12 @@ const api = async (method, path, body) => {
   throw new Error(`no ${method} ${path}`);
 };
 const heard = (p) => {   // the broadcasts after a change
-  p.onMessage({ type: 'amt_settings', overrides: copy(SRV.amt), alerts: copy(SRV.alerts) });
+  p.onMessage({ type: 'amt_settings', overrides: copy(SRV.amt), symbols: copy(SRV.syms), alerts: copy(SRV.alerts) });
   p.onMessage({ type: 'gap_alerts', alerts: copy(SRV.gap), switches: copy(SRV.switches) });
 };
 const page = () => { const c = { console, api }; vm.createContext(c); vm.runInContext(PAGE, c); return c; };
-const sent = (path) => calls.filter((c) => c[1] === path).map((c) => [c[0], c[2]]);
+const sent = (path) => calls.filter((c) => c[1].split('?')[0] === path).map((c) => [c[0], c[2]]);
+const start = (s = 'ES') => copy({ ...SRV.amt, ...(SRV.syms[s] || {}) });   // what a chart of the symbol starts from
 (async () => {
   const out = {};
   /*SCENARIO*/
@@ -230,13 +242,14 @@ const sent = (path) => calls.filter((c) => c[1] === path).map((c) => [c[0], c[2]
 
 def pages(scenario: str) -> dict:
     """Runs the scenario (JS, with page(), heard(), SRV, calls, sent() and out) against the fake server; returns out."""
-    from chartsrv.amt_hub import DEFAULTS, SCHEMA, SHARED
+    from chartsrv.amt_hub import DEFAULTS, PER_SYMBOL, SCHEMA, SHARED
     from test_hunt_web_chart import WEB, app_part
     schema = json.loads(Path(amt_hub.__file__).with_name("nt_schema.json").read_text())["gap"]
     page = PAGE_JS.replace("/*IND*/", (WEB / "indicators.js").read_text()).replace(
         "/*APP*/", "\n".join(app_part(p) for p in PAGE_PARTS)).replace("GAP_SCHEMA", json.dumps(schema))
     js = (f"const PAGE = {json.dumps(page)};\nconst SCHEMA = {json.dumps(SCHEMA)}, DEFAULTS = {json.dumps(DEFAULTS)}, "
-          f"SHARED = {json.dumps(sorted(SHARED))};\n" + DRIVER_JS.replace("/*SCENARIO*/", scenario))
+          f"SHARED = {json.dumps(sorted(SHARED))}, PER_SYMBOL = {json.dumps(sorted(PER_SYMBOL))};\n"
+          + DRIVER_JS.replace("/*SCENARIO*/", scenario))
     r = subprocess.run(["node", "-e", js], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
     return json.loads(r.stdout.strip().split("\n")[-1])
@@ -256,15 +269,15 @@ def test_a_page_with_an_old_copy_of_the_shared_settings_saves_only_what_it_chang
   A.edit('amt', 'cc_alert_80', false);
   A.edit('amt', 'LevelsFile', 'https://levels.example/{root}');
   await A.ok();
-  out.afterA = copy(SRV.amt);
+  out.afterA = start();
   B.indDlg.open(true, 'amt');
   B.edit('amt', 'LevelAlertMode', 'Both');
   await B.ok();
-  out.afterB = copy(SRV.amt);
+  out.afterB = start();
   B.indDlg.open(true, 'amt');
   B.edit('amt', 'vwap_width', 3);
   await B.applyAll();
-  out.afterAll = copy(SRV.amt);
+  out.afterAll = start();
   out.sentB = sent('/api/amt/settings').slice(1);
   out.toasts = [...A.toasts, ...B.toasts].filter((t) => t.startsWith('FAIL'));
 """)
@@ -287,7 +300,7 @@ def test_every_page_shows_the_shared_settings_and_alert_switches_as_they_are_cha
   await A.hello();
   A.indDlg.open(true, 'amt');
   out.before = [A.shows('amt', 'cc_alert_80'), A.$('#amt-alerts').checked, A.$('#gap-alerts').checked];
-  SRV.amt = { cc_alert_80: false }; SRV.alerts = { ES: { on: true } };
+  SRV.syms = { ES: { cc_alert_80: false } }; SRV.alerts = { ES: { on: true } };
   SRV.switches.fill = false; SRV.gap = { ES: { on: true, new: true, fill: false, rth: false } };
   heard(A);
   out.amt = [A.shows('amt', 'cc_alert_80'), A.$('#amt-alerts').checked, A.$('#amt-info').textContent];
@@ -316,7 +329,7 @@ def test_loading_a_preset_leaves_the_shared_alert_switches_and_levels_file_alone
   await A.preset('s');
   out.saved = A.T.kinds['ind:amt']['ES daily'].settings;
   A.indDlg.open(false);
-  SRV.amt = { cc_alert_80: false, LevelsFile: 'https://levels.example/{root}' };
+  SRV.amt = { LevelsFile: 'https://levels.example/{root}' }; SRV.syms = { ES: { cc_alert_80: false } };
   heard(A);
   A.T.kinds['ind:amt'].old = { settings: { mvp_tf_mode: 'Monthly', cc_alert_80: true, lvl_alerts: true, LevelsFile: '' } };
   for (const name of ['ES daily', 'old']) {
@@ -324,7 +337,7 @@ def test_loading_a_preset_leaves_the_shared_alert_switches_and_levels_file_alone
     await A.preset(`a:${name}`);
     out[name] = { shows: [A.shows('amt', 'mvp_tf_mode'), A.shows('amt', 'cc_alert_80'), A.shows('amt', 'LevelsFile')] };
     await A.ok();
-    out[name].server = copy(SRV.amt);
+    out[name].server = start();
     out[name].own = copy(A.own.amt || {});
   }
 """)
@@ -376,14 +389,14 @@ def test_an_alert_switch_a_chart_had_turned_off_is_moved_to_the_shared_settings_
     setting leaves the chart's own, the rest stays, a toast says so, and a second hello does nothing (before: the
     alerts it had off came back on, their boxes ticked again)."""
     out = pages("""
-  SRV.amt = { ib_alert_ibh: false };
+  SRV.syms = { ES: { ib_alert_ibh: false } };
   const A = page();
-  A.S.tabs = [{ own: { set: { amt: { cc_alert_80: false, vwap_width: 3, lvl_zoneWidthTicks: 12, alertcap_enable: false, ib_alert_ibh: true } } } },
-    { link: true }];
+  A.S.tabs = [{ sym: 'ES', own: { set: { amt: { cc_alert_80: false, vwap_width: 3, lvl_zoneWidthTicks: 12, alertcap_enable: false, ib_alert_ibh: true } } } },
+    { sym: 'ES', link: true }];
   A.S.sharedSet = { amt: { pd_alert_hl: false }, gap: { AlertOnGapFill: false, ShowGapZones: false } };
   await A.hello();
   await A.moveSharedOut();
-  out.server = [copy(SRV.amt), copy(SRV.switches)];
+  out.server = [start(), copy(SRV.switches)];
   out.sets = [A.S.tabs[0].own.set, A.S.sharedSet];
   out.toasts = A.toasts;
   const n = calls.length;
@@ -419,21 +432,26 @@ def client(tmp_path, monkeypatch):
 
 def test_amt_settings_changes_merge_and_every_page_hears_them(client):
     """r13-alerts-3, r13-scope-1, r13-scope-5: PATCH /api/amt/settings takes only what changed, over the server's as
-    they are now (one back at its default goes); every change of the shared settings or of a symbol's AMT alert switch
-    is broadcast to every page with both (before: none, so a page kept its copy from its hello)."""
-    start = client.get("/api/amt").json()["overrides"]
+    they are now (one back at its default goes); every change of the settings (every chart's, a symbol's alert
+    settings) or of a symbol's AMT alert switch is broadcast to every page with all of them (before: none, so a page
+    kept its copy from its hello). The alert settings are the symbol's given (round 14)."""
+    start = client.get("/api/amt").json()
+    every, es = start["overrides"], start["symbols"]["ES"]
     link = {"cc_alert_80": False, "LevelsFile": "https://levels.example/{root}"}
-    assert client.patch("/api/amt/settings", json=link).json()["overrides"] == {**start, **link}
-    r = client.patch("/api/amt/settings", json={"LevelAlertMode": "Both"})              # another page's change
-    assert r.json()["overrides"] == {**start, **link, "LevelAlertMode": "Both"}
-    assert "cc_alert_80" not in client.patch("/api/amt/settings", json={"cc_alert_80": True}).json()["overrides"]
-    assert client.patch("/api/amt/settings", json={"cc_alert_80": "off"}).status_code == 400
+    r = client.patch("/api/amt/settings?symbol=ES", json=link).json()
+    assert r["overrides"] == {**every, "LevelsFile": link["LevelsFile"]} and r["symbols"]["ES"] == {**es, "cc_alert_80": False}
+    r = client.patch("/api/amt/settings?symbol=ES", json={"LevelAlertMode": "Both"})   # another page's change
+    assert r.json()["symbols"]["ES"] == {**es, "cc_alert_80": False, "LevelAlertMode": "Both"}
+    assert "cc_alert_80" not in client.patch("/api/amt/settings?symbol=ES", json={"cc_alert_80": True}).json()["symbols"]["ES"]
+    assert client.patch("/api/amt/settings?symbol=ES", json={"cc_alert_80": "off"}).status_code == 400
     assert client.put("/api/amt/alerts/ES", json={"on": True}).status_code == 200
     told = [x for x in client.heard if x["type"] == "amt_settings"]
     now = client.get("/api/amt").json()
-    assert len(told) == 4 and told[-1] == {"type": "amt_settings", "overrides": now["overrides"], "alerts": now["alerts"]}
+    assert len(told) == 4 and told[-1] == {"type": "amt_settings", "overrides": now["overrides"], "symbols": now["symbols"],
+                                           "alerts": now["alerts"]}
     assert told[-1]["alerts"]["ES"] == {"on": True}
-    assert client.put("/api/amt/settings", json={}).json()["overrides"] == {}             # PUT: the whole set, as before
+    r = client.put("/api/amt/settings", json={}).json()           # PUT: the whole set, as before (no symbol: every one's)
+    assert r["overrides"] == {} and r["symbols"]["ES"] == {} and all(v == {} for v in r["symbols"].values())
     assert client.heard[-1]["type"] == "amt_settings" and client.heard[-1]["overrides"] == {}
 
 

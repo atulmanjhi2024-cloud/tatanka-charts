@@ -110,7 +110,8 @@ edit('amt', 'lvl_text', 'ES 2026-10-26, 6860');
 out.edited = await ok();
 console.log(JSON.stringify(out));
 """
-IND_PARTS = ["setStudy", "LVL_TEXT", "IND_NOTES", "same", "amtShared", "pickSet", "amtOwn", "indReady", "indDefaults",
+IND_PARTS = ["setStudy", "LVL_TEXT", "IND_NOTES", "same", "amtShared", "amtBySymbol", "pickSet", "amtOwn", "amtStart", "amtPatch",
+             "indReady", "indDefaults",
              "indSymbolSaved", "indPutSymbol", "loadPlanLevels", "savePlanLevels", "ifFetched", "ifRequest", "indAdapter"]
 
 

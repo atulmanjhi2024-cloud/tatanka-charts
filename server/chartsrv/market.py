@@ -14,7 +14,7 @@ import httpx
 from . import dsma, htfema, packages, sessions, stopping, workers
 from . import watchlists as wl
 from .alerts import AlertEngine
-from .amt_hub import AmtHub, clean_settings
+from .amt_hub import AmtHub
 from .bars import BarSpec, Series, make_series, parse_spec
 from .config import INSTRUMENTS_SETTING, Instrument, Settings, _instruments, clean_instruments, futures_catalog, instruments_state
 from .levels import Levels
@@ -843,9 +843,7 @@ class Market:
             return
         try:
             reset = set((seed.get("reset") or {}).get("amt", []))   # back to NinjaTrader's default, whatever the app had
-            ov = clean_settings({k: v for k, v in {**seed.get("amt", {}), **self.amt.overrides}.items() if k not in reset})
-            self.amt._set(ov)
-            self.store.set_setting("amt_settings", ov)
+            self.amt.seed(seed.get("amt", {}), reset)   # its alert settings every symbol's
             for key, values in seed.get("indicators", {}).items():
                 self.ind.put(key, {**values, **self.ind.overrides.get(key, {})})
         except (KeyError, ValueError, TypeError) as e:

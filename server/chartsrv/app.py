@@ -734,49 +734,69 @@ class AmtAlertsIn(BaseModel):
 @app.get("/api/amt")
 async def amt_info():
     """The Toolkit's version, its settings (schema: groups, labels, choices and bounds as in NinjaTrader; defaults:
-    NinjaTrader's), this server's changes from them and the per-symbol alert switches."""
+    NinjaTrader's), this server's changes from them: every chart's (overrides) and each symbol's alert settings
+    (symbols; the names in per_symbol), and the per-symbol alert switches."""
     from . import amt
-    from .amt_hub import DEFAULTS, SCHEMA, SHARED
+    from .amt_hub import DEFAULTS, PER_SYMBOL, SCHEMA, SHARED
     m = M()
-    return {"version": amt.VERSION, "schema": SCHEMA, "defaults": DEFAULTS, "overrides": m.amt.overrides, "shared": sorted(SHARED),
+    return {"version": amt.VERSION, "schema": SCHEMA, "defaults": DEFAULTS, "overrides": m.amt.overrides,
+            "symbols": m.amt.per_symbol, "shared": sorted(SHARED), "per_symbol": sorted(PER_SYMBOL),
             "alerts": m.amt.alert_cfg, "runners": m.amt.health()}
 
 
 def _amt_said(m):
-    """Every page hears the shared AMT settings and the per-symbol alert switches as they are now (a layout's page, a
-    chart not showing the Toolkit, another device), so none saves over them from an old copy."""
-    m.broadcast({"type": "amt_settings", "overrides": m.amt.overrides, "alerts": m.amt.alert_cfg})
+    """Every page hears the AMT settings, each symbol's alert settings and the per-symbol alert switches as they are now
+    (a layout's page, a chart not showing the Toolkit, another device), so none saves over them from an old copy, and
+    a page shows each symbol's own: a change of NQ's leaves what an ES chart shows as it is."""
+    m.broadcast({"type": "amt_settings", "overrides": m.amt.overrides, "symbols": m.amt.per_symbol, "alerts": m.amt.alert_cfg})
+
+
+def _amt_symbol(m, symbol: str | None) -> str | None:
+    """The symbol whose alert settings a change is for (None: every symbol's); 404 if it is no instrument."""
+    if symbol is None:
+        return None
+    if symbol.upper() not in m.instruments:
+        raise HTTPException(404, f"unknown symbol {symbol}")
+    return symbol.upper()
 
 
 @app.put("/api/amt/settings")
-async def amt_settings(overrides: dict):
-    """The shared settings, all of them: what is left out goes back to NinjaTrader's default."""
+async def amt_settings(overrides: dict, symbol: str | None = None):
+    """The settings, all of them: what is left out goes back to NinjaTrader's default. The alert settings (per_symbol in
+    GET /api/amt) are the symbol's, every chart of it (?symbol=NQ), or with no symbol every symbol's; the rest every
+    chart's."""
     m = M()
+    sym = _amt_symbol(m, symbol)
     try:
-        m.amt.set_overrides(overrides)
+        m.amt.set_overrides(overrides, sym)
     except (KeyError, ValueError, TypeError) as e:
         raise HTTPException(400, str(e).strip("'\""))
     _amt_said(m)
-    return {"overrides": m.amt.overrides}
+    return {"overrides": m.amt.overrides, "symbols": m.amt.per_symbol}
 
 
 @app.patch("/api/amt/settings")
-async def amt_settings_change(changes: dict):
-    """Only the shared settings that changed, over the server's as they are now (one at its default goes back to it)."""
+async def amt_settings_change(changes: dict, symbol: str | None = None):
+    """Only the settings that changed, over the server's as they are now (one at its default goes back to it): the
+    alert settings the symbol's (?symbol=NQ: every NQ chart's; with no symbol every symbol's), the rest every chart's."""
     m = M()
+    sym = _amt_symbol(m, symbol)
     try:
-        m.amt.merge_overrides(changes)
+        m.amt.merge_overrides(changes, sym)
     except (KeyError, ValueError, TypeError) as e:
         raise HTTPException(400, str(e).strip("'\""))
     _amt_said(m)
-    return {"overrides": m.amt.overrides}
+    return {"overrides": m.amt.overrides, "symbols": m.amt.per_symbol}
 
 
 @app.post("/api/amt/settings/check")
-async def amt_settings_check(overrides: dict):
-    """A chart's own AMT settings, checked as the Toolkit does, without saving them: the chart keeps them."""
+async def amt_settings_check(overrides: dict, symbol: str | None = None):
+    """A chart's own AMT settings, checked as the Toolkit does, without saving them: the chart keeps them (with its
+    symbol's alert settings, or with none given NinjaTrader's)."""
+    m = M()
+    sym = _amt_symbol(m, symbol)
     try:
-        return {"overrides": M().amt.chart_settings(overrides)[1]}
+        return {"overrides": m.amt.chart_settings(overrides, sym)[1]}
     except (KeyError, ValueError, TypeError) as e:
         raise HTTPException(400, str(e).strip("'\""))
 

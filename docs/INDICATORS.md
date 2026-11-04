@@ -17,7 +17,7 @@ default; TPO Profile is there to turn on. Each is a row in Studies ▾.
   layout, the chart last clicked), on every device that opens the workspace. **Apply to all charts** puts the
   selected indicator's settings, as shown, on every tab of every chart, layout and workspace: they become the
   starting settings (what a new chart gets) and each chart's own for that indicator goes. The other indicators keep
-  theirs.
+  theirs. The AMT Toolkit's alert settings are the exception: they go to the charts of the chart's symbol only (below).
 - A few settings belong to one chart in NinjaTrader, so here they are per symbol (marked with the symbol in the
   dialog): the AMT Toolkit's Paste Levels Here, the If/Then block and instrument label, Level Lines' range and
   custom levels.
@@ -68,20 +68,29 @@ server, so it draws the same lines the NinjaTrader version does and can alert wi
   sees those 90 days.
 - **Settings…** opens every Toolkit setting in the Indicators dialog (above): the same 19 groups, checked the way
   the indicator's own validation does; the Toolkit reloads on Apply. Each chart's own, like the other indicators
-  (the server runs one Toolkit per distinct set of settings; charts on the same settings share it), except the
-  alert settings (the Alerts group, every group's Alert switches and the level zones' width, which Zone Entry alerts
-  use) and the levels file, which are the same on every chart (AMT alerts come from one run per symbol, so turning one
-  off on any chart turns it off), and Paste Levels Here, which is the symbol's. A change to those on any chart, tab or
-  device shows at once on every other (each saves only what it changed). Presets (Presets ▾) are the chart's own
-  settings only: loading one leaves those as they are. Left out because they only mean something inside NinjaTrader: alert sound and the indicator's own
-  Discord webhook (this app has its own alert channels). With the session-change warning on (the default), the
-  chart says so when a session field differs from its default: all session fields are Central exchange time.
+  (the server runs one Toolkit per distinct set of settings; charts on the same settings share it), except:
+  - the **alert settings** (the Alerts group, every group's Alert switches and the level zones' width, which Zone
+    Entry alerts use; marked with the symbol in the dialog), which are the **symbol's**: the same on every chart of
+    it, as AMT alerts come from one run per symbol. Turning one off on an NQ chart turns it off on every NQ chart, tab
+    and device, and leaves ES's as they are; Apply to all charts on an ES chart gives them to ES's charts only. Each
+    instrument has its own (micros too: MES's are not ES's); one added later starts at NinjaTrader's defaults.
+  - the **levels file**, which is the same on every chart and symbol (`{root}` makes it each one's file or link);
+  - **Paste Levels Here**, which is the symbol's.
+
+  A change to those on any chart, tab or device shows at once on every other showing them (each saves only what it
+  changed). Presets (Presets ▾) are the chart's own settings only: loading one leaves those as they are. From a
+  version before the alert settings were each symbol's, the first start gives every instrument (and each symbol whose
+  AMT alerts are kept off Instruments) the ones every chart had, once, so nothing set is lost. Left out because they
+  only mean something inside NinjaTrader: alert sound and the indicator's own Discord webhook (this app has its own
+  alert channels). With the session-change warning on (the default), the chart says so when a session field differs
+  from its default: all session fields are Central exchange time.
 - **The alerts follow their Alert switches only.** The alert run works out every group whose Alert switch is on
   (Alert VWAP Cross computes the RTH VWAP, Alert IB High Cross the IB, Alert nPOC Touch every kind of nPOC...), whatever
   a chart shows: a group's Enable switch (Enable IB, Enable RTH VWAP, Show Late Spike...) is each chart's own and only
-  shows or hides the group on that chart. To stop a group's alerts, untick its Alert switch. An Alert switch a chart
-  had turned off in its own settings before they were every chart's is turned off on every chart once, the first
-  time that chart opens (it only ever turns alerts off), and a message says so.
+  shows or hides the group on that chart. To stop a group's alerts, untick its Alert switch (on a chart of that
+  symbol). An Alert switch a chart's tab had turned off in its own settings before they were shared is turned off on
+  every chart of that tab's symbol once (a linked tab's: its symbol's), the first time that chart opens (it only ever
+  turns alerts off), and a message says so.
 - **Each instrument's own hours.** The session fields are written for ES/NQ's regular hours (08:30-15:00 CT), as
   NinjaTrader's defaults; on another instrument they move with its own (config/instruments.json `rth`): a time nearer
   the open moves with the open, one nearer the close with the close, the overnight stays. CL (08:00-13:30): IB
@@ -92,13 +101,16 @@ server, so it draws the same lines the NinjaTrader version does and can alert wi
   is Tuesday's overnight. IB Stop Time is 0830-1500 here (NinjaTrader's default is 0830-1515), and the OVN High/Low
   lines stay from the RTH open to the 17:00 open (Delete OVN Lines At 1700-1705; NinjaTrader's 1500-1505).
 - Profile: Day, Week, Month or Year is also a quick switch in the menu.
-- Alerts: "Alerts to Discord/phone" turns on the Toolkit's own level alerts for that symbol (from a 5m engine;
-  its storm cap applies). How levels alert is the Level Alert Mode setting (Cross by default). Off by default.
+- Alerts: "Alerts to Discord/phone" turns on the Toolkit's own level alerts for that symbol (from a 5m engine on
+  the symbol's alert settings; its storm cap applies). How levels alert is its Level Alert Mode setting (Cross by
+  default). Off by default.
   Turned back on, they start afresh: nothing that happened while they were off is sent.
-- API: `GET /api/amt` gives the settings schema, the defaults and the current changes; `PUT /api/amt/settings`
+- API: `GET /api/amt` gives the settings schema, the defaults and the current changes: every chart's (`overrides`)
+  and each symbol's alert settings (`symbols`, by symbol; their names in `per_symbol`). `PUT /api/amt/settings`
   takes the changes as a JSON object (same names as the NinjaTrader properties, e.g. `ib_session`), all of them;
-  `PATCH /api/amt/settings` takes only those that change (one at its default goes back to it). Every open page hears
-  each change (`amt_settings`).
+  `PATCH /api/amt/settings` takes only those that change (one at its default goes back to it). With `?symbol=NQ` the
+  alert settings in either are NQ's; with no symbol, every symbol's. Every open page hears each change
+  (`amt_settings`, with every chart's and each symbol's).
   `server/tools/gen_amt_schema.py` regenerates the schema from a new version of the C# source.
 
 Parity check against the original C# (needs mono), from `server/`:
@@ -196,12 +208,12 @@ trades into them; the table shows the latest gap, its fill, bars elapsed and the
   stretch up to the live trades is still being filled: see [Alerts](ALERTS.md#alerts)). Saving Gap Analysis'
   settings on any chart gives its RTH and minimum size to every symbol's alerts, each staying on or off at its own
   hours, whichever chart or device last switched it (`PUT /api/gaps/alerts`, which takes what it is given). The alert
-  switches (Alert on new gap, Alert on full gap fill) are the same on every chart, as the AMT Toolkit's: the dialog
-  shows the server's, a change on any chart applies to every chart and symbol and shows at once on every open page, a
-  preset leaves them as they are, and one a chart had turned off in its own settings before is turned off everywhere
-  once (as above). The server works them out once, at its first start after the update, from each symbol's alerts as
-  saved (off where a symbol whose alerts are on had it off; with no alerts saved, as the starting settings have it),
-  and the next page to open says which it turned off.
+  switches (Alert on new gap, Alert on full gap fill) are the same on every chart and symbol (unlike the AMT Toolkit's,
+  which are each symbol's): the dialog shows the server's, a change on any chart applies to every chart and symbol and
+  shows at once on every open page, a preset leaves them as they are, and one a chart had turned off in its own
+  settings before is turned off everywhere once (as above). The server works them out once, at its first start after
+  the update, from each symbol's alerts as saved (off where a symbol whose alerts are on had it off; with no alerts
+  saved, as the starting settings have it), and the next page to open says which it turned off.
 
 Parity check against the original C# (needs mono), from `server/`:
 `tests/gap_csharp/build.sh <tatanka-indicators checkout> <workdir>`, then

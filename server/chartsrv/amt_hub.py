@@ -1,8 +1,8 @@
 """Runs the Tatanka AMT Toolkit on the server: one AmtRunner per (symbol, minutes, settings), loaded from stored 1m
 history, fed live minutes, previewed once a second for the charts that show it. Each chart can have its own settings
-(a runner per distinct set; charts on the shared settings share one); the shared ones are the starting point and run
-the alerts (with every group an alert switch that is on needs). AMT alerts are opt-in per symbol and come from one
-dedicated runner per symbol, so they never fire twice."""
+(a runner per distinct set; charts on the starting settings share one); the starting ones are every chart's, with the
+symbol's alert settings on them, and the symbol's run its alerts (with every group an alert switch that is on needs).
+AMT alerts are opt-in per symbol and come from one dedicated runner per symbol, so they never fire twice."""
 import asyncio
 import hashlib
 import json
@@ -51,13 +51,17 @@ SCHEMA = sorted([x for x in SCHEMA if x["name"] != "lvl_text"] + _EXTRA,
                 key=lambda x: (int(x["group"].split(".")[0]), x["order"]))
 SCHEMA_BY_NAME = {x["name"]: x for x in SCHEMA}
 DEFAULTS = {**amt.DEFAULTS, **EXTRA_DEFAULTS}
-# Always the shared settings, whatever a chart has: where the daily levels come from, and the alerts (one runner per
-# symbol fires them, on the shared settings): the Alerts group, each group's own alert switches (Alert 80% Rule
-# Confirmed, Enable Level Alerts, Alert Window...), so turning one off on any chart turns it off, and the level zones'
-# width, which Zone Entry alerts use (so a chart's zones are the ones that alert).
+# Never a chart's own, whatever a chart has: where the daily levels come from, and the alerts (one runner per symbol
+# fires them): the Alerts group, each group's own alert switches (Alert 80% Rule Confirmed, Enable Level Alerts, Alert
+# Window...), and the level zones' width, which Zone Entry alerts use (so a chart's zones are the ones that alert).
 ZONE_WIDTH = {"lvl_zone_mode", "lvl_zone_atr_pct", "lvl_zoneWidthTicks"}
 SHARED = frozenset({"LevelsFile"} | ZONE_WIDTH
                    | {x["name"] for x in SCHEMA if x["group"].startswith("18.") or "alert" in x["name"].lower()})
+# Of those, all but the levels file are the symbol's: every ES chart has ES's and ES's alerts run on them, so turning one
+# off on an NQ chart turns it off on every NQ chart and leaves ES's as they are (a zone width in ticks is an instrument's
+# too). The levels file is one setting for every chart and symbol: {root} makes it each symbol's file or link.
+PER_SYMBOL = SHARED - {"LevelsFile"}
+SYMBOL_SETTING = "amt_symbol_settings"   # the store's: symbol -> its PER_SYMBOL settings that differ from the defaults
 # The alerts follow their alert switches only: what each needs on for the engine to work out what it alerts on (the
 # group's Enable, nPOCs' kinds). A chart's own Enable only shows or hides the group there; the alert runner has every
 # one that an alert switch on needs.
@@ -70,7 +74,7 @@ ALERT_NEEDS = {
 
 
 def alert_overrides(overrides: dict) -> dict:
-    """The alert runner's settings: the shared ones, with what each alert switch that is on needs turned on."""
+    """A symbol's alert runner's settings: its starting ones, with what each alert switch that is on needs turned on."""
     on = {k for alert, needs in ALERT_NEEDS.items() if overrides.get(alert, DEFAULTS[alert]) for k in needs}
     out = {**overrides, **{k: True for k in on}}
     return {k: v for k, v in out.items() if v != DEFAULTS[k]}   # what differs from the defaults, as clean_settings keeps
@@ -132,7 +136,7 @@ class AmtEntry:
         self.pending: list[Bar] = []
         self.subs: set = set()        # (client, sid)
         self.error: str | None = None
-        self.dropped = False          # new shared settings or a gap fill let go of it (so its failure is no chart's)
+        self.dropped = False          # new settings or a gap fill let go of it (so its failure is no chart's)
         self.idle_since = time.monotonic()
         self.sig = None
 
@@ -155,45 +159,89 @@ class AmtHub:
     def __init__(self, market):
         self.m = market
         self.entries: dict[tuple[str, int], AmtEntry] = {}
-        self._set({k: v for k, v in (market.store.get_setting("amt_settings", {}) or {}).items()
-                   if k in SCHEMA_BY_NAME})   # a pasted line from before is per symbol now
         self.alert_cfg: dict = market.store.get_setting("amt_alerts", {})   # symbol -> {"on"}
+        every = {k: v for k, v in (market.store.get_setting("amt_settings", {}) or {}).items()
+                 if k in SCHEMA_BY_NAME}   # a pasted line from before is per symbol now
+        per = market.store.get_setting(SYMBOL_SETTING, None)
+        if not isinstance(per, dict):
+            per = self._migrate(every)
+        self._set({k: v for k, v in every.items() if k not in PER_SYMBOL},
+                  {sym: {k: v for k, v in ov.items() if k in PER_SYMBOL} for sym, ov in per.items() if isinstance(ov, dict)})
         self.alert_times: dict[str, deque] = {}
         self.cap_warned: dict[str, bool] = {}
 
-    # --- settings ---------------------------------------------------------------------------------
-    def settings(self) -> amt.Settings:
-        return self._settings
+    def _migrate(self, every: dict) -> dict:
+        """The first start since the alert settings are each symbol's: the ones every chart had (the shared settings'
+        alert settings, stored with the rest) become every symbol's, each instrument's and each one's whose AMT alerts
+        are kept for when it is back on Instruments, so nothing set is lost; then they leave the every-chart settings.
+        Once: from then on the symbols' are stored (SYMBOL_SETTING), even with none changed."""
+        alerts = {k: v for k, v in every.items() if k in PER_SYMBOL}
+        per = {sym: dict(alerts) for sym in sorted({*self.m.instruments, *self.alert_cfg})}
+        self.m.store.set_setting(SYMBOL_SETTING, per)
+        if alerts:
+            self.m.store.set_setting("amt_settings", {k: v for k, v in every.items() if k not in PER_SYMBOL})
+            log.info("AMT alert settings are each symbol's now: %s copied to %s", ", ".join(sorted(alerts)), ", ".join(per))
+        return per
 
-    def _set(self, overrides: dict):
+    # --- settings ---------------------------------------------------------------------------------
+    def _set(self, overrides: dict, per_symbol: dict | None = None):
+        """overrides: every chart's starting settings, without the alert settings; per_symbol: symbol -> its alert
+        settings (PER_SYMBOL; a symbol with none has NinjaTrader's defaults)."""
         self.overrides, self._settings = overrides, engine_settings(overrides)
-        # the alert runner's (alert_overrides): the shared runner's when they are the same, else a runner of their own
-        self._alert_ov = alert_overrides(overrides)
-        self._alert_sig = "" if self._alert_ov == overrides else json.dumps(self._alert_ov, sort_keys=True, separators=(",", ":"))
+        if per_symbol is not None:
+            self.per_symbol = per_symbol
+        self._sym: dict = {}   # symbol -> what _of works out, until the settings change
+
+    def _of(self, sym: str | None) -> tuple:
+        """The symbol's starting settings (every chart's with its alert settings on them), as the engine has them, and
+        its alert runner's (alert_overrides) with that runner's sig: "" when it is the starting settings' runner, else
+        a runner of its own. None: no symbol's (the alert settings at their defaults)."""
+        got = self._sym.get(sym)
+        if got is None:
+            base = {**self.overrides, **self.per_symbol.get(sym, {})} if sym is not None else self.overrides
+            alert = alert_overrides(base)
+            got = self._sym[sym] = (base, engine_settings(base), alert,
+                                    "" if alert == base else json.dumps(alert, sort_keys=True, separators=(",", ":")))
+        return got
+
+    def base(self, sym: str | None) -> dict:
+        """What the symbol's charts start from: every chart's starting settings with the symbol's alert settings."""
+        return self._of(sym)[0]
+
+    def settings(self, sym: str | None = None) -> amt.Settings:
+        """base(sym) as the engine takes them (sessions as written; settings_for moves them to the symbol's hours)."""
+        return self._of(sym)[1]
+
+    def symbols(self) -> list[str]:
+        """Every symbol with alert settings: the instruments, and those kept for one taken off Instruments."""
+        return sorted({*self.m.instruments, *self.per_symbol, *self.alert_cfg})
 
     def alert_key(self, sym: str) -> tuple:
         """The key of the runner that alerts for `sym`."""
-        return (sym, ALERT_MINUTES, self._alert_sig) if self._alert_sig else (sym, ALERT_MINUTES)
+        sig = self._of(sym)[3]
+        return (sym, ALERT_MINUTES, sig) if sig else (sym, ALERT_MINUTES)
 
-    def chart_settings(self, overrides: dict | None) -> tuple[str, dict]:
-        """A chart's own settings, cleaned (ValueError if bad), and its runners' key: "" when they are the shared
-        ones. The alerts and the levels file are always the shared ones."""
+    def chart_settings(self, overrides: dict | None, sym: str | None = None) -> tuple[str, dict]:
+        """A chart's own settings, cleaned (ValueError if bad), and its runners' key: "" when they are the symbol's
+        starting ones. The alerts are always the symbol's (sym; None: at their defaults) and the levels file every
+        chart's."""
+        base = self.base(sym)
         if overrides is None:
-            return "", self.overrides
+            return "", base
         if not isinstance(overrides, dict):
             raise ValueError("AMT settings must be an object")
         mine = clean_settings({**{k: v for k, v in overrides.items() if k not in SHARED},
-                               **{k: v for k, v in self.overrides.items() if k in SHARED}})
-        return ("" if mine == self.overrides else json.dumps(mine, sort_keys=True, separators=(",", ":"))), mine
+                               **{k: v for k, v in base.items() if k in SHARED}})
+        return ("" if mine == base else json.dumps(mine, sort_keys=True, separators=(",", ":"))), mine
 
     def settings_for(self, sym: str, overrides: dict | None = None) -> amt.Settings:
-        """The settings as one symbol runs them (the shared ones, or a chart's own). They are written for ES's regular
+        """The settings as one symbol runs them (its starting ones, or a chart's own). They are written for ES's regular
         hours (08:30-15:00 CT, as the NinjaTrader defaults): another instrument's session fields move to its own (CL's
         IB 08:00-09:00)."""
-        ov = self.overrides if overrides is None else overrides
+        ov = self.base(sym) if overrides is None else overrides
         move = sessions.rth_mover(self.m.instruments[sym].rth)
         if not move:
-            return self._settings if overrides is None else engine_settings(ov)
+            return self.settings(sym) if overrides is None else engine_settings(ov)
         eff = {**DEFAULTS, **ov}
         moved = {k: sessions.move_session(eff[k], move) for k, spec in SCHEMA_BY_NAME.items() if spec.get("session")}
         for h, m in (("vwap_start_h", "vwap_start_m"), ("vwap_end_h", "vwap_end_m"), ("inv_end_h", "inv_end_m")):
@@ -202,18 +250,55 @@ class AmtHub:
         return engine_settings({**ov, **moved})
 
     def settings_value(self, name: str):
+        """A setting every chart and symbol has the same: the levels file."""
         return self.overrides.get(name, DEFAULTS[name])
 
-    def set_overrides(self, overrides: dict):
+    def set_overrides(self, overrides: dict, sym: str | None = None):
+        """All the settings (PUT /api/amt/settings): what is left out goes back to NinjaTrader's default. The alert
+        settings are sym's (every chart of it), or with none given every symbol's; the rest every chart's."""
         overrides = clean_settings(overrides)        # raises ValueError on bad input
-        self._set(overrides)
-        self.m.store.set_setting("amt_settings", overrides)
-        for e in self.entries.values():              # rebuild everything with the new settings
-            e.dropped = True
-            for client, sid in list(e.subs):
-                client.amt_entries.pop(sid, None)
-                client.put({"type": "amt_reset", "id": sid})
-        self.entries.clear()
+        alerts = {k: v for k, v in overrides.items() if k in PER_SYMBOL}
+        self._put({k: v for k, v in overrides.items() if k not in PER_SYMBOL},
+                  {s: alerts for s in ([sym] if sym else self.symbols())})
+
+    def merge_overrides(self, changes: dict, sym: str | None = None):
+        """Only what changed (PATCH; a setting back at its default goes back to it), over the settings as they are now:
+        the alert settings sym's (every chart of it), or with none given every symbol's; the rest every chart's."""
+        every = clean_settings({**self.overrides, **changes})   # raises ValueError on bad input, the alert settings too
+        alerts = {k: v for k, v in changes.items() if k in PER_SYMBOL}
+        self._put({k: v for k, v in every.items() if k not in PER_SYMBOL},
+                  {s: clean_settings({**self.per_symbol.get(s, {}), **alerts}) for s in ([sym] if sym else self.symbols())})
+
+    def seed(self, values: dict, reset: set):
+        """config/nt_settings.json's starting settings (values) under what the app has, so a setting changed in the app
+        is kept; those in reset back to NinjaTrader's default whatever the app had. The alert settings among them go
+        to every symbol. At start, before any runner (ValueError, KeyError or TypeError on bad ones: nothing changes)."""
+        def under(ov, alerts):
+            return clean_settings({k: v for k, v in {**{k: v for k, v in values.items() if (k in PER_SYMBOL) == alerts},
+                                                     **ov}.items() if k not in reset})
+        every, per = under(self.overrides, False), {s: under(self.per_symbol.get(s, {}), True) for s in self.symbols()}
+        self.m.store.set_setting("amt_settings", every)
+        self.m.store.set_setting(SYMBOL_SETTING, {**self.per_symbol, **per})
+        self._set(every, {**self.per_symbol, **per})
+
+    def _put(self, overrides: dict, per: dict):
+        """New settings: every chart's (overrides, without the alert settings) and some symbols' alert settings (per:
+        symbol -> them). The runners of each symbol whose settings changed (every symbol's when every chart's did)
+        start again on the new ones, and the charts on them are told to ask anew; the other symbols' go on."""
+        every = overrides != self.overrides
+        changed = {s for s, ov in per.items() if ov != self.per_symbol.get(s, {})}
+        if every:
+            self.m.store.set_setting("amt_settings", overrides)
+        if changed:
+            self.m.store.set_setting(SYMBOL_SETTING, {**self.per_symbol, **per})
+        self._set(overrides, {**self.per_symbol, **per})
+        for key, e in list(self.entries.items()):   # rebuilt with the new settings
+            if every or key[0] in changed:
+                e.dropped = True
+                for client, sid in list(e.subs):
+                    client.amt_entries.pop(sid, None)
+                    client.put({"type": "amt_reset", "id": sid})
+                del self.entries[key]
         self.ensure_alert_runners()
 
     def reload(self, sym: str):
@@ -227,10 +312,6 @@ class AmtHub:
                 client.put({"type": "amt_reset", "id": sid})
             del self.entries[key]
         self.ensure_alert_runners()
-
-    def merge_overrides(self, changes: dict):
-        """Only what changed (a setting back at its default goes back to it), over the shared settings as they are now."""
-        self.set_overrides({**self.overrides, **changes})
 
     def set_alerts(self, symbol: str, on: bool):
         """Per symbol on/off; how levels alert (Cross, Zone Entry, Both) is the Level alert mode setting."""
@@ -256,8 +337,9 @@ class AmtHub:
                 asyncio.get_running_loop().create_task(self._safe_entry(sym))
 
     async def _safe_entry(self, sym):
+        _base, _s, alert, sig = self._of(sym)
         try:
-            await self.entry(sym, ALERT_MINUTES, self._alert_sig, self._alert_ov)
+            await self.entry(sym, ALERT_MINUTES, sig, alert)
         except Exception:
             log.exception("AMT runner %s %sm failed", sym, ALERT_MINUTES)
 
@@ -276,7 +358,8 @@ class AmtHub:
     async def entry(self, sym: str, minutes: int, sig: str = "", overrides: dict | None = None,
                     raise_error: bool = True) -> AmtEntry:
         """The runner for a symbol, its minutes and a chart's own settings (sig and overrides from chart_settings;
-        none: the shared settings). A load that failed raises its error, or comes back with it (raise_error False)."""
+        none: the symbol's starting settings). A load that failed raises its error, or comes back with it (raise_error
+        False)."""
         key = (sym, minutes, sig) if sig else (sym, minutes)
         e = self.entries.get(key)
         if e is None:
@@ -331,7 +414,7 @@ class AmtHub:
             return
         e = self.entries.get(self.alert_key(tk.symbol))
         if e and e.ready.is_set() and not e.error:
-            self._notify(tk.symbol, e.runner.fresh(e.runner.observe(tk.price, self._settings.LevelAlertMode)), tk.price)
+            self._notify(tk.symbol, e.runner.fresh(e.runner.observe(tk.price, self.settings(tk.symbol).LevelAlertMode)), tk.price)
 
     def levels_changed(self, sym: str):
         for key, e in self.entries.items():
@@ -342,20 +425,20 @@ class AmtHub:
     # --- chart subscriptions --------------------------------------------------------------------------
     async def subscribe(self, client, sid: int, sym: str, minutes: int, overrides: dict | None = None):
         """A chart showing the Toolkit, on its own settings (overrides: all that differ from NinjaTrader's defaults;
-        None: the shared ones)."""
+        None: the symbol's starting ones)."""
         if sym not in self.m.instruments:
             raise ValueError(f"unknown symbol {sym}")
         minutes = max(1, min(30, int(minutes)))
         asked = client.amt_asked[sid] = object()   # a newer request, or amt_off, while this one loads: this one is dropped
-        sig, mine = self.chart_settings(overrides)
+        sig, mine = self.chart_settings(overrides, sym)
         e = await self.entry(sym, minutes, sig, mine, raise_error=False)
         if e.error and not e.dropped:
             raise RuntimeError(e.error)
         if client.closed or client.amt_asked.get(sid) is not asked or not (sid in client.subs or sid in client.loading):
             return
-        # New shared settings or a gap fill dropped the runner while it loaded (loaded or failed), before this chart was
-        # on it to be told: told now, as the charts on it were, it asks again with the shared settings as they are now
-        # (its own ones came on top of the old shared ones).
+        # New settings for the symbol or a gap fill dropped the runner while it loaded (loaded or failed), before this
+        # chart was on it to be told: told now, as the charts on it were, it asks again with the settings as they are now
+        # (its own ones came on top of the old starting ones).
         if self.entries.get((sym, minutes, sig) if sig else (sym, minutes)) is not e:
             client.put({"type": "amt_reset", "id": sid})
             return
@@ -400,7 +483,7 @@ class AmtHub:
     def _notify(self, sym: str, notices: list, price: float):
         if not notices or filling(self.m, sym):   # counted as sent all the same (fresh)
             return
-        S = self.settings()
+        S = self.settings(sym)   # the symbol's storm cap
         times = self.alert_times.setdefault(sym, deque())
         now = int(time.time() * 1000)
         inst = self.m.instruments[sym]

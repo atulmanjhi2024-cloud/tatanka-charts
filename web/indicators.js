@@ -4,8 +4,10 @@
    Each indicator is an adapter from app.js: { key, title, version, shown(), show(on), schema(), defaults() (what a
    chart starts from), ntDefaults() (NinjaTrader's), overrides() (the chart's changes from defaults()), perSymbol(),
    save(draft, symbolDraft), applyAll(draft), colorFormat ('argb' for the AMT Toolkit, else 'hex'), sharedNames (a Set:
-   the settings that are the same on every chart, such as the alert switches; optional) }. The settings are each
-   chart's; Apply to all charts puts the shown ones on every chart (env.allCharts). */
+   the settings that are the same on every chart, such as the alert switches; optional), symbolShared (a Set: those of
+   them that are the same on every chart of the symbol, such as the AMT Toolkit's alert settings; optional), allNote()
+   (what Apply to all charts' question adds; optional) }. The settings are each chart's; Apply to all charts puts the
+   shown ones on every chart (env.allCharts). */
 'use strict';
 
 const IND_DASHES = ['Solid', 'Dash', 'Dot', 'DashDot', 'DashDotDot'];
@@ -172,6 +174,13 @@ function createIndicatorsDialog(env) {
   // ---- right: the selected indicator's properties ------------------------------------------------------------------
   function renderBody() {
     const a = ad(), schema = a.schema() || [], groups = new Map();
+    if (D.sym !== null && D.sym !== env.symbol()) {   // the chart's symbol changed: edits of the last one's settings that
+      // every chart of a symbol shares are not this one's (it shows its own), as a symbol's own settings
+      for (const [k, d] of Object.entries(D.drafts)) {
+        const b = ad(k);
+        if (b?.symbolShared) D.drafts[k] = Object.fromEntries(Object.entries(d).filter(([n]) => !b.symbolShared.has(n)));
+      }
+    }
     D.sym = env.symbol();   // the symbol whose own settings it shows
     for (const x of schema) { if (!groups.has(x.group)) groups.set(x.group, []); groups.get(x.group).push(x); }
     const open = D.open[a.key] || {};
@@ -187,7 +196,7 @@ function createIndicatorsDialog(env) {
         row.dataset.name = x.name;
         row.dataset.text = `${g} ${x.label} ${x.description || ''} ${x.name}`.toLowerCase();
         const lab = el('label', { textContent: x.label, title: x.description || '' });
-        if (isSym(a, x.name)) lab.append(el('em', { className: 'sym', textContent: ` (${env.symbol()})` }));
+        if (isSym(a, x.name) || a.symbolShared?.has(x.name)) lab.append(el('em', { className: 'sym', textContent: ` (${env.symbol()})` }));
         const ctl = control(a, x, row);
         lab.htmlFor = ctl.id || '';
         const undo = el('button', { type: 'button', className: 'undo', textContent: '↺', title: `Back to NinjaTrader's default (${defaultText(a, x)})` });
@@ -232,9 +241,9 @@ function createIndicatorsDialog(env) {
     });
   }
   // Presets, NinjaTrader's "Save as template": this indicator's settings under a name, on every device. Loading one
-  // fills the dialog; Apply or OK uses it. Only the chart's own: the settings every chart shares (the alert switches,
-  // the levels file) are not saved in one and stay as they are when one loads. (Chart and indicator templates are the
-  // chart's, in its own menus.)
+  // fills the dialog; Apply or OK uses it. Only the chart's own: the settings charts share (the alert switches, every
+  // chart of the symbol's or every chart's; the levels file) are not saved in one and stay as they are when one loads.
+  // (Chart and indicator templates are the chart's, in its own menus.)
   const presetPart = (a, d, shared = false) => Object.fromEntries(Object.entries(d || {}).filter(([k]) => !!a.sharedNames?.has(k) === shared));
   function renderTpl() {
     const sel = $q('.ind-tpl'), T = env.templates?.();
@@ -326,7 +335,7 @@ function createIndicatorsDialog(env) {
     const a = ad();
     if (!a.applyAll || !env.allCharts) return;
     const ok = await env.ask({ title: `${a.title} on every chart?`, input: false, ok: 'Apply to all charts',
-      message: 'Every tab of every chart, layout and workspace shows these settings; what each had of its own for this indicator goes.' });
+      message: `Every tab of every chart, layout and workspace shows these settings; what each had of its own for this indicator goes.${a.allNote?.() || ''}` });
     if (ok === null) return;
     const btns = dlg.querySelectorAll('.ind-apply, .ind-ok, .ind-all');
     btns.forEach((b) => { b.disabled = true; });
