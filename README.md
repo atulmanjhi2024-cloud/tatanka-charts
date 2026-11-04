@@ -3,6 +3,11 @@
 Self-hosted charting server: live futures charts (time, tick, volume, range bars), daily levels, watchlists and
 server-side alerts, in a browser on desktop and phone. One user per install. Never places orders.
 
+![Tatanka Charts: an ES chart with the AMT Toolkit, session volume profiles, VWAP and EMAs](docs/images/tatanka-charts.png)
+
+*Loaded up on purpose to show a lot at once: the AMT Toolkit and its dashboard, session volume profiles, VWAP, EMAs. Every
+study turns on and off on its own, so a chart can be as clean as you like. Simulated data.*
+
 Futures trades come from the NinjaTrader add-on, or from other feeds (Interactive Brokers, Databento, a program of
 your own, or a feed plugin anyone can write). Watchlist quotes come from NinjaTrader, IBKR, Alpaca, Coinbase and
 Yahoo. A fresh install runs on a simulator until a feed is connected.
