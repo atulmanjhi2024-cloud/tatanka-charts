@@ -579,7 +579,7 @@ function chartLayout() {
 const keepScale = (base) => base();
 function priceOnlyLayout() {
   for (const s of chart.panes()[0].getSeries()) {
-    if (s === candles || s === vol || s === altSeries) continue;
+    if (s === candles || s === vol || s === altSeries || s === hemaLine) continue;   // the HTF EMA: never (above)
     s.applyOptions({ autoscaleInfoProvider: S.cs.priceOnly ? () => null : keepScale });
   }
 }
@@ -731,7 +731,9 @@ function hemaStyle() {
   return { color: p.color, lineWidth: Math.max(1, Math.round(p.width)), lineStyle: LW_DASH[p.dash] ?? 0 };
 }
 const hemaTitle = () => `HTF EMA(${S.hemaSet.HtfPeriod} ${S.hemaSet.HtfPeriodType},${S.hemaSet.EmaLength})`;
-const hemaLine = chart.addSeries(L.LineSeries, { ...lineOpts, ...hemaStyle(), lastValueVisible: true, title: '' });
+// Left out of the price auto-scale: a higher timeframe's EMA can sit hundreds of points from price after a big move,
+// and fitting it squashed the candles flat. Off the chart then, it goes off screen.
+const hemaLine = chart.addSeries(L.LineSeries, { ...lineOpts, ...hemaStyle(), lastValueVisible: true, title: '', autoscaleInfoProvider: () => null });
 // Daily SMA x4 (below): four plots with price markers (PaintPriceMarkers), and its labels right of the last bar
 S.dsma = null;
 S.dsmaVals = [];

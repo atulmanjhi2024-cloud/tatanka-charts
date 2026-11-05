@@ -247,6 +247,9 @@ chart, including tick and range charts, updated on every price change. Three mod
 - **Exact**: the EMA of the last closed higher-timeframe bar, a step line.
 - **Live**: the higher-timeframe EMA with the current price as the forming bar's close.
 
+The line is left out of the price auto-scale: after a big move it can sit hundreds of points from price, and fitting
+it squashed the candles flat. Far from price, it goes off screen.
+
 The server computes the higher-timeframe EMA and, for seconds, minute and hour charts, the chart EMA before the
 chart's first bar, from enough stored history (8 EMA lengths) that the line starts settled; the
 browser runs the indicator's OnBarUpdate on the chart's bars. Source timeframe (Minute 1-1440 or Day; Day bars are
