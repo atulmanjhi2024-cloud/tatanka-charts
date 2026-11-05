@@ -440,6 +440,10 @@ const axTime = (t) => {
 };
 
 // ---- chart --------------------------------------------------------------------------------
+// How far the bars zoom: the library's own limits were 0.5 px (candles drawn as hairlines) and half the chart's width
+// (one or two fat bars on screen). 2.5 px is where a candle still has a body; 50 px a wide one. The footprint needs 36 px
+// to show its cells at all, and room for the numbers, so it zooms further in.
+const MIN_SPACING = 2.5, MAX_SPACING = 50, FP_MAX_SPACING = 160;
 const chart = L.createChartEx($('#chart'), new ZoneTimeScale(), {
   autoSize: true,
   // No logo on the chart; the credit the library's license asks for is in the chart settings menu.
@@ -451,6 +455,7 @@ const chart = L.createChartEx($('#chart'), new ZoneTimeScale(), {
   trackingMode: { exitMode: L.TrackingModeExitMode.OnTouchEnd },
   timeScale: {
     borderColor: '#3a3a3a', rightOffset: 6, timeVisible: true, secondsVisible: false, tickMarkFormatter: axTick,
+    minBarSpacing: MIN_SPACING, maxBarSpacing: MAX_SPACING,
   },
   localization: { dateFormat: "dd MMM 'yy", timeFormatter: axTime },
   crosshair: { mode: L.CrosshairMode.Normal },
@@ -529,6 +534,8 @@ function barsLayout() {
     if (S.layersReady) layerSeries();
   }
   const fp = S.st.fp !== 'off' && !S.ext, off = S.barsOff, hide = fp || !!altSeries || off, ha = altSeries?._style === 'ha';   // HA: the real price on the axis
+  const maxSp = fp ? FP_MAX_SPACING : MAX_SPACING;   // the footprint off: wider bars come back in
+  if (chart.timeScale().options().maxBarSpacing !== maxSp) chart.timeScale().applyOptions({ maxBarSpacing: maxSp });
   if (hide !== S.candlesHidden) {   // a doji's own colors would show through see-through candles
     S.candlesHidden = hide;
     if (S.bars?.length) candles.setData(S.bars.map((b) => toPoints(b)[0]));
@@ -4926,7 +4933,7 @@ function applyLock(recenter) {
 // and fits the data again.
 function lockZoom(bs0, f) {   // also the time axis' one-finger zoom, locked or not
   const ts = chart.timeScale(), o = ts.options();
-  ts.applyOptions({ barSpacing: Math.max(o.minBarSpacing || 0.5, Math.min(120, bs0 * f)) });   // applyLock follows
+  ts.applyOptions({ barSpacing: Math.max(o.minBarSpacing || MIN_SPACING, Math.min(o.maxBarSpacing || MAX_SPACING, bs0 * f)) });   // applyLock follows
 }
 {
   const el = $('#chart');
