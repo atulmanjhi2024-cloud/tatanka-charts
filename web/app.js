@@ -459,7 +459,28 @@ const chart = L.createChartEx($('#chart'), new ZoneTimeScale(), {
   localization: { dateFormat: "dd MMM 'yy", timeFormatter: axTime },
   crosshair: { mode: L.CrosshairMode.Normal },
 });
-const candles = chart.addSeries(L.CandlestickSeries, { upColor: C.up, downColor: C.down, wickUpColor: C.up, wickDownColor: C.down, borderVisible: false });
+// Auto scale keeps room around the last price: at least a third of the pane above and below it while the last bar is
+// on screen. The range grows only on the side price presses against (after a big drop, below it); scrolled back, the
+// bars fit as before. The scale's own margins count (20% above, 10% below by default); log scales work in log space.
+const PRICE_ROOM = 1 / 3;
+function roomAroundPrice(base) {
+  const r = base(), n = S.bars?.length, last = n ? S.bars[n - 1].c : NaN;
+  const vr = n ? chart.timeScale().getVisibleLogicalRange() : null;
+  if (!r?.priceRange || !vr || vr.to < n - 1 || vr.from > n - 1 || !Number.isFinite(last)) return r;
+  const ps = chart.priceScale('right').options(), log = ps.mode === L.PriceScaleMode.Logarithmic;
+  const mt = ps.scaleMargins?.top ?? 0.2, mb = ps.scaleMargins?.bottom ?? 0.1, band = 1 - mt - mb;
+  if (log && !(r.priceRange.minValue > 0 && last > 0)) return r;
+  const f = log ? Math.log : (x) => x, back = log ? Math.exp : (x) => x;
+  let lo = f(r.priceRange.minValue), hi = f(r.priceRange.maxValue);
+  const p = f(last), u = (PRICE_ROOM - mb) / band, v = (1 - PRICE_ROOM - mb) / band;   // where in the bars' band
+  if (!(band > 0 && hi > lo && p >= lo && p <= hi)) return r;
+  if (u > 0 && u < 1 && p - lo < u * (hi - lo)) lo = (p - u * hi) / (1 - u);          // low on the pane: room below
+  else if (v > 0 && v < 1 && p - lo > v * (hi - lo)) hi = lo + (p - lo) / v;          // high on it: room above
+  else return r;
+  return { ...r, priceRange: { minValue: back(lo), maxValue: back(hi) } };
+}
+const candles = chart.addSeries(L.CandlestickSeries, { upColor: C.up, downColor: C.down, wickUpColor: C.up, wickDownColor: C.down, borderVisible: false,
+  autoscaleInfoProvider: roomAroundPrice });
 const vol = chart.addSeries(L.HistogramSeries, { priceScaleId: 'vol', priceFormat: { type: 'volume' }, lastValueVisible: false, priceLineVisible: false });
 chart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
 
