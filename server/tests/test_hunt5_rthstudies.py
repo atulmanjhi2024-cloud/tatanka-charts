@@ -253,7 +253,7 @@ const S = { symbol: 'ES', rth: true, st: { gap: true }, gapAlerts: {}, gaps: { g
   S.gapAlerts.CL = { on: true, rth: true };
   S.gapAlerts.XX.on = false;
   out.put = calls.splice(0);
-  await gapAlertsFollow();                         // a Gap settings save on NQ's ETH chart: each keeps its own hours
+  await gapAlertsFollow();                         // a Gap settings save on NQ's ETH chart: NQ's keep their own hours
   out.follow = calls.splice(0);
   console.log(JSON.stringify(out));
 })();
@@ -266,5 +266,6 @@ def test_the_chart_switches_gap_alerts_on_with_its_hours():
     out = run_app(["hhmm", "gapRth", "gapRthOk", "GAP_RTH_BAD", "gapAlertsPut", "renderGapInfo", "putGapAlerts", "gapAlertsFollow"], GAP_JS)
     assert out["put"] == [["/api/gaps/alerts/ES", True], ["/api/gaps/alerts/XX", False], ["/api/gaps/alerts/NQ", False]]
     assert out["rthInfo"].endswith("Alerts: new gap + fill (RTH).") and out["ethInfo"].endswith("Alerts: new gap + fill.")
-    # one request with the shared settings and no hours: the server keeps each one's own (test_hunt7_gapsmonthly)
-    assert out["follow"] == [["/api/gaps/alerts", None]]
+    # one request with the settings and no hours, for the chart's symbol's alerts (round 14: another symbol's keep
+    # theirs): the server keeps its own (test_hunt7_gapsmonthly)
+    assert out["follow"] == [["/api/gaps/alerts?symbol=NQ", None]]

@@ -1291,12 +1291,13 @@ const GAP_SERVER = ['MinimumGapPoints', 'days'];
 S.gaps = null;
 S.gapError = '';
 S.gapAlerts = {};
-// Its alert switches are every chart's, as the server's gap alerts have them (their new and fill), not a chart's own.
+// Its alert switches are the symbol's, the same on every chart of it, as the server's gap alerts for the symbol have them
+// (their new and fill), not a chart's own: another symbol's charts keep theirs.
 const GAP_SWITCH = { AlertOnNewGap: 'new', AlertOnGapFill: 'fill' };
 const GAP_SHARED = new Set(Object.keys(GAP_SWITCH));
-S.gapSwitches = null;   // { new, fill }, from the server
+S.gapSwitches = null;   // symbol -> { new, fill }, from the server
 S.gapNotice = [];       // those its first start turned off (from each symbol's alerts as saved before): said once
-const gapShown = () => Object.fromEntries(Object.entries(GAP_SWITCH).map(([k, n]) => [k, S.gapSwitches?.[n] ?? true]));
+const gapShown = (sym = S.symbol) => Object.fromEntries(Object.entries(GAP_SWITCH).map(([k, n]) => [k, S.gapSwitches?.[sym]?.[n] ?? true]));
 const gapSpecOk = () => /^\d+[mh]$/.test(S.spec);
 // Where the symbol/OHLC legend ends, in chart pixels: tables drawn at the top move below it if they would overlap.
 // Measured once per frame (every drawn study asks; each measure can force a layout), then forgotten.
@@ -1722,7 +1723,7 @@ async function loadGapAlerts() {
   renderGapMenu();
 }
 // rth: the alerts watch the regular hours only, as an RTH chart's Gap Analysis (one setting per symbol: this chart's).
-// The alert switches are the server's (every chart's).
+// The alert switches are the server's for the symbol (every chart of it).
 async function putGapAlerts(on, sym = S.symbol, rth = S.rth) {
   if (!gapRthOk()) throw new Error(GAP_RTH_BAD);
   const g = S.gapSet;
@@ -1732,16 +1733,21 @@ async function putGapAlerts(on, sym = S.symbol, rth = S.rth) {
   });
   S.gapAlerts[sym] = a;   // into the alerts as they are now (a GET's answer may have replaced them meanwhile)
 }
-// The server's gap alerts use the RTH, minimum size and alert switches: after a change, every symbol's, each keeping
-// whether it is on and the hours it was switched on with as the server has them (this page's copy is from its hello:
-// another chart, tab or device may have switched them since). g: the settings saved, this chart's by default; sw: the
-// alert switches changed in the dialog (every chart's: only those are sent, over the server's as they are now).
-async function gapAlertsFollow(g = S.gapSet, sw = {}) {
+// The server's gap alerts use the RTH, minimum size and alert switches: after a change, the symbol's (another symbol's
+// alerts keep theirs: its points and hours are its own), keeping whether they are on and the hours they were switched on
+// with as the server has them (this page's copy is from its hello: another chart, tab or device may have switched them
+// since). g: the settings saved, this chart's by default; sw: the alert switches changed in the dialog (the symbol's,
+// every chart of it: only those are sent, over the server's as they are now). A chart of no instrument has no gap alerts.
+async function gapAlertsFollow(g = S.gapSet, sw = {}, sym = S.symbol) {
   if (!gapRthOk(g)) throw new Error(GAP_RTH_BAD);
+  const switches = Object.fromEntries(Object.entries(sw).filter(([k]) => k in GAP_SWITCH).map(([k, v]) => [GAP_SWITCH[k], v]));
+  if (!S.instruments[sym]) {
+    if (Object.keys(switches).length) throw new Error(`Gap Analysis' alert switches are each instrument's and ${sym} is not one: change them on an instrument's chart`);
+    return;
+  }
   gapAlertsPut++;
-  const got = await api('PUT', '/api/gaps/alerts', {
-    ...Object.fromEntries(Object.entries(sw).filter(([k]) => k in GAP_SWITCH).map(([k, v]) => [GAP_SWITCH[k], v])),
-    RthStart: g.RthStart, RthEnd: g.RthEnd, MinimumGapPoints: g.MinimumGapPoints,
+  const got = await api('PUT', `/api/gaps/alerts?symbol=${encodeURIComponent(sym)}`, {
+    ...switches, RthStart: g.RthStart, RthEnd: g.RthEnd, MinimumGapPoints: g.MinimumGapPoints,
   });
   S.gapAlerts = got.alerts || {};
   if (got.switches) S.gapSwitches = got.switches;
@@ -1764,12 +1770,12 @@ $('#gap-alerts').onchange = async (e) => {
   renderGapMenu();   // the box too: a GET's answer meanwhile may have set it back
 };
 
-// An alert switch a chart turned off in its own settings before the switches were shared (the AMT Toolkit's, its
-// symbol's on every chart of it; Gap Analysis', every chart's): moved to the shared settings once, the AMT Toolkit's to
-// the symbols of the tabs that had it (a tab's own set: its symbol; the chart's shared set: its linked tabs'), off only
-// (it silences, never turns an alert on), and then every shared setting leaves the chart's own, where nothing reads
-// it. Each chart does its own tabs, another workspace's when it opens. The gap alert switches the server turned off at
-// its first start (S.gapNotice) are said too, by the one page that claims them.
+// An alert switch a chart turned off in its own settings before the switches were shared (the AMT Toolkit's and Gap
+// Analysis', each its symbol's on every chart of it): moved to the shared settings once, to the symbols of the tabs that
+// had it (a tab's own set: its symbol; the chart's shared set: its linked tabs'), off only (it silences, never turns an
+// alert on), and then every shared setting leaves the chart's own, where nothing reads it. Each chart does its own tabs,
+// another workspace's when it opens. The gap alert switches the server turned off at its first start (S.gapNotice) are
+// said too, by the one page that claims them.
 let sharedMoved = false;
 async function moveSharedOut() {
   if (sharedMoved || TK_MULTI || !S.amtServer.schema || !S.gapSwitches) return;   // a layout's page has no tabs of its own
@@ -1783,19 +1789,24 @@ async function moveSharedOut() {
   // the Alert switches (not the storm cap: off, it sends more)
   const silent = new Map(S.amtServer.schema.filter((x) => x.type === 'bool' && /alert/i.test(x.name) && !x.group.startsWith('18.'))
     .map((x) => [x.name, `${x.group.replace(/^\d+\. /, '')}: ${x.label}`]));
-  const amtOff = {}, gapOff = {};   // amtOff: symbol -> its switches to turn off
+  const amtOff = {}, gapOff = {};   // symbol -> its switches to turn off
   let said = [];
   for (const [set, syms] of sets) {
     for (const [k, v] of Object.entries(set.amt || {})) {
       if (v !== false || !silent.has(k)) continue;
       for (const sym of syms) if (S.instruments[sym] && amtNow(sym)[k] === true) (amtOff[sym] ||= {})[k] = false;
     }
-    for (const [k, v] of Object.entries(set.gap || {})) if (v === false && k in GAP_SWITCH && S.gapSwitches[GAP_SWITCH[k]] !== false) gapOff[GAP_SWITCH[k]] = false;
+    for (const [k, v] of Object.entries(set.gap || {})) {
+      if (v !== false || !(k in GAP_SWITCH)) continue;
+      for (const sym of syms) if (S.instruments[sym] && gapShown(sym)[k]) (gapOff[sym] ||= {})[GAP_SWITCH[k]] = false;
+    }
   }
   try {
     for (const [sym, off] of Object.entries(amtOff)) await amtPatch(off, sym);
     if (Object.keys(amtOff).length) await loadAmtServer();
-    if (Object.keys(gapOff).length) S.gapSwitches = (await api('PUT', '/api/gaps/alerts', gapOff)).switches || S.gapSwitches;
+    for (const [sym, off] of Object.entries(gapOff)) {
+      S.gapSwitches = (await api('PUT', `/api/gaps/alerts?symbol=${encodeURIComponent(sym)}`, off)).switches || S.gapSwitches;
+    }
     if (S.gapNotice.length) said = (await api('DELETE', '/api/gaps/alerts/notice')).notice || [];
   } catch { sharedMoved = false; return; }   // kept as they are: tried again at the next hello
   const drop = (set) => {
@@ -1807,15 +1818,21 @@ async function moveSharedOut() {
   if (moved) saveTabs();
   if (own(S.sharedSet)) { S.sharedSet = drop(S.sharedSet); local.set('indSet', JSON.stringify(S.sharedSet)); }
   const gapName = (k) => (k === 'new' ? 'Gap Analysis: Alert on new gap' : 'Gap Analysis: Alert on full gap fill');
-  const gapNames = Object.keys(gapOff).map(gapName);
-  const before = said.filter((k) => S.gapSwitches[k] === false).map(gapName);   // not one ticked again since
   const it = (a) => (a.length > 1 ? 'them' : 'it');
-  const why = [...Object.entries(amtOff).map(([sym, off]) => {   // the AMT Toolkit's: the symbol's charts
-    const names = Object.keys(off).map((k) => `AMT ${silent.get(k)}`);
+  const why = [...new Set([...Object.keys(amtOff), ...Object.keys(gapOff)])].map((sym) => {   // each symbol's charts
+    const names = [...Object.keys(amtOff[sym] || {}).map((k) => `AMT ${silent.get(k)}`), ...Object.keys(gapOff[sym] || {}).map(gapName)];
     return `Off on every ${sym} chart, as this chart had ${it(names)}: ${names.join('; ')}.`;
-  }), gapNames.length && `Off on every chart, as this chart had ${it(gapNames)}: ${gapNames.join('; ')}.`,
-  before.length && `Off on every chart, as the gap alerts had ${it(before)} before: ${before.join('; ')}.`].filter(Boolean);
-  if (why.length) toast(`Alert switches are shared now: the AMT Toolkit's by every chart of a symbol, Gap Analysis' by every chart. ${why.join(' ')}`, 10000);
+  });
+  // the first start's: off for every symbol then; said for those that have it off still (not ticked again since)
+  const insts = Object.keys(S.instruments), before = new Map();   // whose charts -> the switches
+  for (const k of said) {
+    const off = insts.filter((sym) => S.gapSwitches?.[sym]?.[k] === false);
+    if (!off.length) continue;
+    const whose = off.length === insts.length ? 'every chart' : `every ${off.join(', ')} chart`;
+    before.set(whose, [...(before.get(whose) || []), gapName(k)]);
+  }
+  for (const [whose, names] of before) why.push(`Off on ${whose}, as the gap alerts had ${it(names)} before: ${names.join('; ')}.`);
+  if (why.length) toast(`Alert switches are shared now by every chart of a symbol (the AMT Toolkit's and Gap Analysis'). ${why.join(' ')}`, 10000);
 }
 
 // ---- HTF EMA --------------------------------------------------------------------------------------------------
@@ -2149,7 +2166,7 @@ const IND_NOTES = {
   amt: 'Runs on the server for every device. All session fields are Central exchange time. The alert settings (the Alerts group, every Alert switch and the level zone width, marked with the symbol) are the symbol\'s: the same on every chart of it (one alert runner per symbol), while another symbol\'s charts keep theirs, also on Apply to all charts. The levels file is the same on every chart. Presets leave both as they are. The alerts follow their Alert switches only: a group\'s Enable switch only shows or hides it on this chart.',
   ifthen: "The block and the instrument label are this symbol's; the block is also on the Plan tab.",
   lines: "The range and the custom levels are this symbol's; they are also on the Plan tab.",
-  gap: 'How many days it scans is in the Studies menu (History). The alert switches are the same on every chart (the server\'s gap alerts), and presets leave them as they are.',
+  gap: 'How many days it scans is in the Studies menu (History). The alert switches (marked with the symbol) are the symbol\'s: the same on every chart of it (the server\'s gap alerts for it), while another symbol\'s charts keep theirs, also on Apply to all charts. The symbol\'s gap alerts take the RTH times and minimum gap size of the chart of it that last saved them or switched them on, never another symbol\'s. Presets leave the alert switches as they are.',
   hema: 'The source timeframe can be Minute or Day bars.',
   dsma: "Daily bars from the 1-minute bars stored here (the last 1000, as NinjaTrader loads), one per CME trading day, or per regular session on an RTH chart. Plot widths are Line Width.",
   aavp: "Runs on the server from the 1-minute bars stored here, as far back as they go. Pin to visible edge keeps a long anchor's histogram on screen.",
@@ -2199,9 +2216,10 @@ function indAdapter(key) {
     key, title: sc.title.replace(/^Tatanka /, ''), version: sc.version, colorFormat: 'hex', note: `${IND_NOTES[key] || ''}${whose}`,
     shown: () => !!S.st[key], show: (on) => setStudy(key, on),
     // the chart's settings sit on top of the starting ones (the server's): "default" here is what those say; Gap
-    // Analysis' alert switches as the server's gap alerts have them (every chart's), as the AMT Toolkit's
+    // Analysis' alert switches as the server's gap alerts for the chart's symbol have them, as the AMT Toolkit's
     schema: () => sc.settings, defaults: () => ({ ...indDefaults(key), ...(S.ind.overrides[key] || {}), ...(key === 'gap' ? gapShown() : {}) }),
     ntDefaults: () => indDefaults(key), overrides: () => pickSet(tabSet()[key], shared, false), sharedNames: shared,
+    ...(key === 'gap' ? { symbolShared: shared, allNote: () => ` The alert switches go to every ${S.symbol} chart only, and only ${S.symbol}'s gap alerts take the RTH times and minimum gap size: each symbol keeps its own.` } : {}),
     symbolNames: S.ind.per_symbol?.[key] || [],
     perSymbol: () => ({ ...(S.ind.symbols[key]?.[S.symbol] || {}), ...(key === 'ifthen' ? { RowsBlock: S.ifData?.rows ?? '' } : {}) }),
     symbolDefault: (n) => (n === 'InstrumentLabel' ? S.symbol : n === 'RowsBlock' ? '' : indDefaults(key)[n]),
@@ -2213,12 +2231,12 @@ function indAdapter(key) {
         if (Object.keys(ch).length) await indPutSymbol(key, ch);
         if (key === 'lines') renderPlanLines(true);
       }
-      if (key === 'gap') await gapAlertsFollow(S.gapSet, pickSet(d, shared, true));
+      if (key === 'gap') await gapAlertsFollow(S.gapSet, pickSet(d, shared, true));   // the chart's symbol's alerts
     },
     async applyAll(d) {   // every chart: these become the starting settings, and no chart keeps its own
       const full = { ...a.defaults(), ...d }, nt = indDefaults(key);
       await indPut(key, Object.fromEntries(Object.entries(full).filter(([n, v]) => n in nt && !shared.has(n) && !same(v, nt[n]))));
-      // as OK does; this tab's own may still be in S.gapSet until allCharts
+      // as OK does, for this symbol's alerts (another's keep theirs); this tab's own may still be in S.gapSet until allCharts
       if (key === 'gap') await gapAlertsFollow(full, pickSet(d, shared, true));
     },
   };
@@ -5485,7 +5503,7 @@ function onMessage(m) {
       amtFollow();   // a chart on its own settings: they sit on its symbol's starting ones
       indDlg.refresh();
       break;
-    case 'gap_alerts':   // a symbol's gap alerts or the alert switches changed
+    case 'gap_alerts':   // a symbol's gap alerts or its alert switches changed (each symbol's, so an ES chart shows ES's)
       gapAlertsPut += 1;   // a GET out meanwhile answers with them from before: asked again
       S.gapAlerts = m.alerts || {};
       if (m.switches) S.gapSwitches = m.switches;

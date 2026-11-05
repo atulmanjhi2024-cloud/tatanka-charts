@@ -35,6 +35,8 @@ DAYS_MAX = 180
 ALERT_HISTORY_DAYS = 90
 LIVE_BAR_AGE_MS = 6 * 60_000   # minutes older than this (buffered data catching up) never alert
 SEEN = SimpleNamespace(answered=True)   # held for a new gap in buffered trades: sent with the next live update
+SWITCHES = ("new", "fill")   # the alert switches (Alert on new gap, Alert on full gap fill); on where none is saved
+SYMBOL_SWITCHES = "gap_symbol_switches"   # the store's: symbol -> its alert switches (every chart of it has them)
 
 
 def run(s: dict, minutes: int, minute_bars, record: list | None = None, rth: tuple[str, str] | None = None):
@@ -127,27 +129,59 @@ class GapService:
     def __init__(self, market):
         self.m = market
         self.alert_cfg: dict = market.store.get_setting("gap_alerts", {})   # symbol -> {on, new, fill, rth, RthStart, ...}
-        # The alert switches (Alert on new gap, Alert on full gap fill): every chart's, in every symbol's config. From
-        # before they were, worked out once and stored: off where a symbol whose alerts are on had it off (it silences,
-        # never turns one on). Each config is as last saved, by the chart that switched it or saved Gap settings, its own
-        # over the starting ones; with none on, every stored one; with none stored, the starting Gap settings. Those it
-        # turns off wait in notice for the next page to say so (told()).
-        self.switches: dict = market.store.get_setting("gap_alert_switches", None)
+        # The alert switches (Alert on new gap, Alert on full gap fill) are each symbol's, the same on every chart of
+        # it (symbol_switches), and its config has them: unticking one on an NQ chart turns it off for NQ's alerts and
+        # leaves ES's as they are. The RTH times and minimum gap size are in each symbol's config, from the chart of it
+        # that last switched its alerts or saved its Gap settings. The first start since the switches are each symbol's
+        # copies the ones every chart had to every symbol, once (_migrate); those the first start before that turned
+        # off wait in notice for the next page to say so (told()).
         self.notice: list = market.store.get_setting("gap_alert_notice", None) or []
-        if not self.switches:
-            start = (market.store.get_setting("ind_settings", {}) or {}).get("gap", {})
-            saved = [cfg for cfg in self.alert_cfg.values() if cfg.get("on")] or list(self.alert_cfg.values()) or [
-                {k: start.get(name) is not False for k, name in (("new", "AlertOnNewGap"), ("fill", "AlertOnGapFill"))}]
-            self.switches = {k: all(cfg.get(k, True) for cfg in saved) for k in ("new", "fill")}
-            self.notice = [k for k, on in self.switches.items() if not on]
-            market.store.set_setting("gap_alert_switches", self.switches)
-            market.store.set_setting("gap_alert_notice", self.notice)
+        per = market.store.get_setting(SYMBOL_SWITCHES, None)
+        if not isinstance(per, dict):
+            per = self._migrate(market.store.get_setting("gap_alert_switches", None))
+        self.symbol_switches: dict = {sym: {k: sw[k] for k in SWITCHES if k in sw}
+                                      for sym, sw in per.items() if isinstance(sw, dict)}
         for sym, cfg in self.alert_cfg.items():
-            self.alert_cfg[sym] = {**cfg, **self.switches}
+            self.alert_cfg[sym] = {**cfg, **self.switches_of(sym)}
         self.watches: dict[str, GapWatch] = {}
         self.held: dict = {}   # symbol -> the fill window of the stretch before the live trades a new gap came during
                                # (SEEN: it came in buffered trades)
         self.refused: dict[str, str] = {}   # symbol -> why its alerts were not started (start())
+
+    def _migrate(self, every: dict | None) -> dict:
+        """The first start since the alert switches are each symbol's: the ones every chart had (every, as stored)
+        become every symbol's, each instrument's and each one's whose alerts are kept for when it is back on
+        Instruments, so an install keeps what it has. Once: from then on the symbols' are stored (SYMBOL_SWITCHES), even
+        with none changed. From a version before they were every chart's (none stored) they are worked out first, as
+        that version did: off where a symbol whose alerts are on had it off (it silences, never turns one on). Each
+        config is as last saved, by the chart that switched it or saved Gap settings, its own over the starting ones;
+        with none on, every stored one; with none stored, the starting Gap settings. Those it turns off wait in notice
+        for the next page to say so."""
+        store = self.m.store
+        if not every:
+            start = (store.get_setting("ind_settings", {}) or {}).get("gap", {})
+            saved = [cfg for cfg in self.alert_cfg.values() if cfg.get("on")] or list(self.alert_cfg.values()) or [
+                {k: start.get(name) is not False for k, name in (("new", "AlertOnNewGap"), ("fill", "AlertOnGapFill"))}]
+            every = {k: all(cfg.get(k, True) for cfg in saved) for k in SWITCHES}
+            self.notice = [k for k, on in every.items() if not on]
+            store.set_setting("gap_alert_notice", self.notice)
+        every = {k: every.get(k, True) is not False for k in SWITCHES}
+        per = {sym: dict(every) for sym in sorted({*self.m.instruments, *self.alert_cfg})}
+        store.set_setting(SYMBOL_SWITCHES, per)
+        if per:
+            log.info("gap alert switches are each symbol's now: %s copied to %s",
+                     ", ".join(f"{k} {'on' if on else 'off'}" for k, on in every.items()), ", ".join(per))
+        return per
+
+    def switches_of(self, sym: str) -> dict:
+        """The symbol's alert switches, {new, fill}: every chart of it has them (on where none is saved: one added
+        later)."""
+        own = self.symbol_switches.get(sym, {})
+        return {k: own.get(k, True) for k in SWITCHES}
+
+    def switches(self) -> dict:
+        """Every instrument's alert switches (GET /api/gaps/alerts and what every page hears): symbol -> {new, fill}."""
+        return {sym: self.switches_of(sym) for sym in self.m.instruments}
 
     # --- charts ---------------------------------------------------------------------------------------
     async def get(self, sym: str, minutes: int, s: dict, days: int, rth: bool = False) -> dict:
@@ -164,33 +198,39 @@ class GapService:
 
     # --- alerts -----------------------------------------------------------------------------------------
     def set_alerts(self, sym: str, cfg: dict):
-        """cfg: on, rth and the chart's RthStart, RthEnd and MinimumGapPoints; the alert switches are every chart's."""
+        """cfg: on, rth and the chart's RthStart, RthEnd and MinimumGapPoints; the alert switches are the symbol's."""
         s = gaps.settings({k: cfg[k] for k in gaps.DEFAULTS})     # raises ValueError on bad times...
-        if cfg.get("on"):   # ...or on ones an instrument's own hours make no session of (switching off: never refused)
-            check_hours(s, self.m.instruments)
-        self.alert_cfg[sym] = {**cfg, **self.switches}
+        if cfg.get("on"):   # ...or on ones its own hours make no session of (switching off: never refused)
+            check_hours(s, {sym: self.m.instruments[sym]})
+        self.alert_cfg[sym] = {**cfg, **self.switches_of(sym)}
         self.m.store.set_setting("gap_alerts", self.alert_cfg)
         self.watches.pop(sym, None)
         self.start()
 
-    def follow(self, s: dict):
+    def follow(self, s: dict, sym: str | None = None):
         """A chart's Gap settings saved (s: what it gives of new, fill, RthStart, RthEnd, MinimumGapPoints; the alert
-        switches new and fill only when changed, as they are every chart's), for every symbol's config: each keeps its
-        own on and rth, as set on whichever chart or device last switched it, and what s leaves out. A symbol no longer
-        an instrument (removed in Connections > Instruments) takes them too, for when it is back; it has no watch."""
+        switches new and fill only when changed), for its symbol's alerts (sym: every chart of it shares the switches,
+        and its config takes the times and size), or with none given every symbol's: the switches of every instrument
+        and every one kept, the rest in every config. A config keeps its own on and rth, as set on whichever chart or
+        device last switched it, and what s leaves out. A symbol no longer an instrument (removed in Connections >
+        Instruments) takes them too with none given, for when it is back; it has no watch."""
         if ("RthStart" in s) != ("RthEnd" in s):
             raise ValueError("Give RthStart and RthEnd together.")
-        # raises ValueError on bad times, or on ones an instrument's own hours make no session of (one off Instruments
-        # whose alerts are kept on too, at the hours it would be back with): nothing stored
-        check_hours(gaps.settings({k: s[k] for k in gaps.DEFAULTS if k in s}), {**self.m.instruments, **self._kept()})
-        switches = {**self.switches, **{k: s[k] for k in ("new", "fill") if k in s}}
-        if switches != self.switches:
-            self.switches = switches
-            self.m.store.set_setting("gap_alert_switches", switches)
-        changed = [sym for sym, cfg in self.alert_cfg.items() if {**cfg, **s} != cfg]
-        for sym in changed:
-            self.alert_cfg[sym] = {**self.alert_cfg[sym], **s}
-            self.watches.pop(sym, None)
+        # raises ValueError on bad times, or on ones the symbol's own hours make no session of (with no symbol: any
+        # instrument's, or one's off Instruments whose alerts are kept on, at the hours it would be back with): nothing
+        # stored
+        hours = {sym: self.m.instruments[sym]} if sym else {**self.m.instruments, **self._kept()}
+        check_hours(gaps.settings({k: s[k] for k in gaps.DEFAULTS if k in s}), hours)
+        syms = [sym] if sym else sorted({*self.m.instruments, *self.symbol_switches, *self.alert_cfg})
+        sw = {k: s[k] for k in SWITCHES if k in s}
+        per = {x: {**self.switches_of(x), **sw} for x in syms if sw}
+        if any(v != self.symbol_switches.get(x) for x, v in per.items()):
+            self.symbol_switches = {**self.symbol_switches, **per}
+            self.m.store.set_setting(SYMBOL_SWITCHES, self.symbol_switches)
+        changed = [x for x in syms if x in self.alert_cfg and {**self.alert_cfg[x], **s} != self.alert_cfg[x]]
+        for x in changed:
+            self.alert_cfg[x] = {**self.alert_cfg[x], **s}
+            self.watches.pop(x, None)
         if changed:
             self.m.store.set_setting("gap_alerts", self.alert_cfg)
             self.start()

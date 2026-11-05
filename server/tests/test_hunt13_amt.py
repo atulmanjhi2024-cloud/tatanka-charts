@@ -1,8 +1,9 @@
 """Round 13 of the bug hunt, the AMT Toolkit's and Gap Analysis' alert settings: the alerts follow their alert switches
 only (the alert runner has every group an alert switch on needs, whatever a chart shows), turning a symbol's AMT alerts
 back on starts them fresh, saves send only what changed and every page hears the shared settings and the per-symbol
-alert switches, presets leave the shared settings alone, Gap Analysis' alert switches are every chart's, and an alert
-switch a chart had turned off before the switches were shared is moved to the shared settings once."""
+alert switches, presets leave the shared settings alone, Gap Analysis' alert switches are shared, not a chart's own (each
+symbol's since round 14: test_gap_alerts_per_symbol.py), and an alert switch a chart had turned off before the switches
+were shared is moved to the shared settings once."""
 import asyncio
 import json
 import re
@@ -195,11 +196,12 @@ PAGE_PARTS = ["LVL_TEXT", "IND_NOTES", "same", "amtShared", "amtBySymbol", "pick
               "sharedMoved", "moveSharedOut", "onMessage"]
 # The server, as app.py has it: PUT /api/amt/settings replaces the settings, PATCH merges what it is given (a value at
 # its default goes), the alert settings (PER_SYMBOL) those of ?symbol= (with none, every symbol's) in SRV.syms, the
-# rest every chart's in SRV.amt; PUT /api/gaps/alerts gives what it is given to every symbol's alerts and the alert
-# switches; DELETE /api/gaps/alerts/notice hands the switches the first start turned off to the first page that asks.
+# rest every chart's in SRV.amt; PUT /api/gaps/alerts gives what it is given to the alerts and alert switches of
+# ?symbol= (with none, every symbol's; the switches in SRV.switches, symbol -> {new, fill}); DELETE
+# /api/gaps/alerts/notice hands the switches the first start turned off to the first page that asks.
 DRIVER_JS = r"""
 const vm = require('vm');
-const SRV = { amt: {}, syms: {}, alerts: {}, gap: {}, switches: { new: true, fill: true }, notice: [] };
+const SRV = { amt: {}, syms: {}, alerts: {}, gap: {}, switches: { ES: { new: true, fill: true }, NQ: { new: true, fill: true } }, notice: [] };
 const calls = [], copy = (x) => JSON.parse(JSON.stringify(x));
 const clean = (o) => Object.fromEntries(Object.entries(o).filter(([k, v]) => JSON.stringify(v) !== JSON.stringify(DEFAULTS[k])));
 const api = async (method, path, body) => {
@@ -218,9 +220,11 @@ const api = async (method, path, body) => {
   if (at === '/api/amt/settings/check') return { overrides: body };
   if (path === '/api/gaps/alerts' && method === 'GET') return copy({ alerts: SRV.gap, switches: SRV.switches, watches: {}, notice: SRV.notice });
   if (path === '/api/gaps/alerts/notice') { const notice = SRV.notice; SRV.notice = []; return { notice }; }
-  if (path === '/api/gaps/alerts') {
-    for (const k of ['new', 'fill']) if (k in body) SRV.switches[k] = body[k];
-    for (const s of Object.keys(SRV.gap)) SRV.gap[s] = { ...SRV.gap[s], ...body };
+  if (at === '/api/gaps/alerts') {
+    for (const s of sym ? [sym] : ['ES', 'NQ']) {
+      for (const k of ['new', 'fill']) if (k in body) SRV.switches[s] = { ...SRV.switches[s], [k]: body[k] };
+      if (SRV.gap[s]) SRV.gap[s] = { ...SRV.gap[s], ...body };
+    }
     return copy({ alerts: SRV.gap, switches: SRV.switches });
   }
   throw new Error(`no ${method} ${path}`);
@@ -301,15 +305,17 @@ def test_every_page_shows_the_shared_settings_and_alert_switches_as_they_are_cha
   A.indDlg.open(true, 'amt');
   out.before = [A.shows('amt', 'cc_alert_80'), A.$('#amt-alerts').checked, A.$('#gap-alerts').checked];
   SRV.syms = { ES: { cc_alert_80: false } }; SRV.alerts = { ES: { on: true } };
-  SRV.switches.fill = false; SRV.gap = { ES: { on: true, new: true, fill: false, rth: false } };
+  SRV.switches.ES.fill = false; SRV.gap = { ES: { on: true, new: true, fill: false, rth: false } };
   heard(A);
   out.amt = [A.shows('amt', 'cc_alert_80'), A.$('#amt-alerts').checked, A.$('#amt-info').textContent];
   A.indDlg.open(true, 'gap');
   out.gap = [A.shows('gap', 'AlertOnGapFill'), A.$('#gap-alerts').checked];
+  A.S.symbol = 'NQ'; A.indDlg.refresh();   // its NQ tab: NQ's, as they were
+  out.nq = A.shows('gap', 'AlertOnGapFill');
 """)
     assert out["before"] == [True, False, False]
     assert out["amt"] == [False, True, "Running on 5-minute bars. Alerts: Cross."]
-    assert out["gap"] == [False, True]
+    assert out["gap"] == [False, True] and out["nq"] is True
 
 
 # ---- r13-scope-3: a preset is the chart's own settings only -----------------------------------------------------------
@@ -347,16 +353,18 @@ def test_loading_a_preset_leaves_the_shared_alert_switches_and_levels_file_alone
     assert out["old"] == {"shows": ["Monthly", False, link["LevelsFile"]], "server": link, "own": {"mvp_tf_mode": "Monthly"}}
 
 
-# ---- r13-scope-4: Gap Analysis' alert switches are every chart's ---------------------------------------------------------
+# ---- r13-scope-4: Gap Analysis' alert switches are shared, not a chart's own (each symbol's since round 14) ---------------
 
 @needs_node
-def test_gap_alert_switches_show_and_save_as_every_charts():
-    """'Alert on full gap fill' unticked on another chart (the server's gap alerts have it off). This chart, whose own
-    Gap settings still have it ticked from before, shows it off, and changing only its Minimum Gap Points sends no
-    switch, so fill alerts stay off; unticking 'Alert on new gap' here sends that one alone (before: the box showed
-    this tab's, and every save gave every symbol this tab's switches, fill alerts on again)."""
+def test_gap_alert_switches_show_and_save_as_the_symbols():
+    """'Alert on full gap fill' unticked on another ES chart (the server's gap alerts for ES have it off). This ES
+    chart, whose own Gap settings still have it ticked from before, shows it off, and changing only its Minimum Gap
+    Points sends no switch, so fill alerts stay off; unticking 'Alert on new gap' here sends that one alone, for ES
+    (before: the box showed this tab's, and every save gave every symbol this tab's switches, fill alerts on again).
+    NQ's switches and alerts are left as they were."""
     out = pages("""
-  SRV.switches.fill = false; SRV.gap = { ES: { on: true, new: true, fill: false, rth: false, MinimumGapPoints: 0 } };
+  SRV.switches.ES.fill = false; SRV.gap = { ES: { on: true, new: true, fill: false, rth: false, MinimumGapPoints: 0 },
+    NQ: { on: true, new: true, fill: true, rth: false, MinimumGapPoints: 0 } };
   const A = page();
   A.own = { gap: { AlertOnGapFill: true, RthStart: 90000 } };
   A.S.gapSet = { ...A.S.gapSet, ...A.own.gap };
@@ -369,13 +377,16 @@ def test_gap_alert_switches_show_and_save_as_every_charts():
   A.edit('gap', 'AlertOnNewGap', false);
   await A.ok();
   out.sent = sent('/api/gaps/alerts').map((c) => c[1]);
-  out.server = [SRV.switches, SRV.gap.ES.fill, SRV.gap.ES.MinimumGapPoints];
+  out.paths = calls.filter((c) => c[1].startsWith('/api/gaps/alerts')).map((c) => c[1]);
+  out.server = [SRV.switches, SRV.gap.ES.fill, SRV.gap.ES.MinimumGapPoints, SRV.gap.NQ];
   out.own = A.own.gap;
 """)
     assert out["shows"] is False
     assert out["sent"] == [{"RthStart": 90000, "RthEnd": 150000, "MinimumGapPoints": 2},
                            {"new": False, "RthStart": 90000, "RthEnd": 150000, "MinimumGapPoints": 2}]
-    assert out["server"] == [{"new": False, "fill": False}, False, 2]
+    assert out["paths"] == ["/api/gaps/alerts?symbol=ES"] * 2
+    assert out["server"] == [{"ES": {"new": False, "fill": False}, "NQ": {"new": True, "fill": True}}, False, 2,
+                             {"on": True, "new": True, "fill": True, "rth": False, "MinimumGapPoints": 0}]
     assert out["own"] == {"RthStart": 90000, "MinimumGapPoints": 2}   # the chart's own, no alert switch in it
 
 
@@ -384,10 +395,10 @@ def test_gap_alert_switches_show_and_save_as_every_charts():
 @needs_node
 def test_an_alert_switch_a_chart_had_turned_off_is_moved_to_the_shared_settings_once():
     """A tab's own set from before (Alert 80% Rule Confirmed off, its own zone width, the storm cap off, IB High
-    alert on) and the chart's linked set (Alert High/Low Break off, Gap Analysis' 'Alert on full gap fill' off): the
-    alerts it had off go off on every chart (not the storm cap: off, it sends more; and nothing turned on), every shared
-    setting leaves the chart's own, the rest stays, a toast says so, and a second hello does nothing (before: the
-    alerts it had off came back on, their boxes ticked again)."""
+    alert on) and the chart's linked set (Alert High/Low Break off, Gap Analysis' 'Alert on full gap fill' off), both
+    ES's: the alerts it had off go off on every ES chart (not the storm cap: off, it sends more; and nothing turned
+    on; NQ's as they were), every shared setting leaves the chart's own, the rest stays, a toast says so, and a second
+    hello does nothing (before: the alerts it had off came back on, their boxes ticked again)."""
     out = pages("""
   SRV.syms = { ES: { ib_alert_ibh: false } };
   const A = page();
@@ -406,9 +417,11 @@ def test_an_alert_switch_a_chart_had_turned_off_is_moved_to_the_shared_settings_
   await B.moveSharedOut();
   out.again = calls.length - n;
 """)
-    assert out["server"] == [{"ib_alert_ibh": False, "cc_alert_80": False, "pd_alert_hl": False}, {"new": True, "fill": False}]
+    assert out["server"] == [{"ib_alert_ibh": False, "cc_alert_80": False, "pd_alert_hl": False},
+                             {"ES": {"new": True, "fill": False}, "NQ": {"new": True, "fill": True}}]   # the tabs' symbol's
     assert out["sets"] == [{"amt": {"vwap_width": 3}}, {"gap": {"ShowGapZones": False}}]
     assert len(out["toasts"]) == 1 and "Alert 80% Rule Confirmed" in out["toasts"][0] and "full gap fill" in out["toasts"][0]
+    assert "Off on every ES chart, as this chart had them: " in out["toasts"][0]
     assert out["again"] == 0
 
 
@@ -455,42 +468,51 @@ def test_amt_settings_changes_merge_and_every_page_hears_them(client):
     assert client.heard[-1]["type"] == "amt_settings" and client.heard[-1]["overrides"] == {}
 
 
-def test_gap_alert_switches_are_every_charts_and_every_page_hears_them(client):
-    """r13-scope-4, r13-scope-5: 'Alert on full gap fill' unticked on one chart is every symbol's; a save on another
-    chart that changed only its minimum size leaves it off (before: that chart's own switches went to every symbol), a
-    symbol switched on later takes the shared switches, a switch alone leaves the RTH and minimum as they are, and
-    every change is broadcast."""
+def test_gap_alert_switches_are_the_symbols_and_every_page_hears_them(client):
+    """r13-scope-4, r13-scope-5 (each symbol's since round 14): 'Alert on full gap fill' unticked on an ES chart is
+    every ES chart's; a save on another ES chart that changed only its minimum size leaves it off (before: that
+    chart's own switches went to every symbol), and NQ's alerts keep their switches and minimum; a symbol switched on
+    later takes its own switches, as set on a chart of it before; a switch alone leaves the RTH and minimum as they
+    are; with no symbol, every symbol's (as before); and every change is broadcast."""
     body = {"RthStart": 83000, "RthEnd": 150000, "MinimumGapPoints": 0.0}
     for sym in ("ES", "NQ"):
         assert client.put(f"/api/gaps/alerts/{sym}", json={**body, "on": True}).status_code == 200
-    r = client.put("/api/gaps/alerts", json={**body, "fill": False})                     # chart 1: fill unticked
-    assert r.json()["switches"] == {"new": True, "fill": False}
-    r = client.put("/api/gaps/alerts", json={**body, "MinimumGapPoints": 2.0})           # chart 2: its minimum only
-    assert {s: (c["fill"], c["MinimumGapPoints"]) for s, c in r.json()["alerts"].items()} == {"ES": (False, 2.0), "NQ": (False, 2.0)}
-    assert client.put("/api/gaps/alerts/CL", json={"on": True, "RthStart": 80000, "RthEnd": 133000, "new": True, "fill": True}).json()["fill"] is False
-    r = client.put("/api/gaps/alerts", json={"new": False})                              # a switch alone
+    r = client.put("/api/gaps/alerts?symbol=ES", json={**body, "fill": False})            # ES chart 1: fill unticked
+    assert r.json()["switches"]["ES"] == {"new": True, "fill": False} and r.json()["switches"]["NQ"] == {"new": True, "fill": True}
+    r = client.put("/api/gaps/alerts?symbol=ES", json={**body, "MinimumGapPoints": 2.0})  # ES chart 2: its minimum only
+    assert {s: (c["fill"], c["MinimumGapPoints"]) for s, c in r.json()["alerts"].items()} == {"ES": (False, 2.0), "NQ": (True, 0.0)}
+    assert client.put("/api/gaps/alerts?symbol=GC", json={"fill": False}).status_code == 200   # GC's, its alerts off
+    on = {"on": True, "RthStart": 80000, "RthEnd": 133000, "new": True, "fill": True}
+    assert client.put("/api/gaps/alerts/CL", json=on).json()["fill"] is True      # CL's own: not ES's
+    assert client.put("/api/gaps/alerts/GC", json=on).json()["fill"] is False     # GC's, as set before
+    r = client.put("/api/gaps/alerts", json={"new": False})                        # a switch alone, every symbol's
     a = r.json()["alerts"]
-    assert all(c["new"] is False and c["fill"] is False for c in a.values())
-    assert (a["ES"]["RthStart"], a["ES"]["MinimumGapPoints"], a["CL"]["RthStart"]) == (83000, 2.0, 80000)
+    assert all(c["new"] is False for c in a.values()) and all(sw["new"] is False for sw in r.json()["switches"].values())
+    assert {s: c["fill"] for s, c in a.items()} == {"ES": False, "NQ": True, "CL": True, "GC": False}
+    assert (a["ES"]["RthStart"], a["ES"]["MinimumGapPoints"], a["CL"]["RthStart"], a["NQ"]["MinimumGapPoints"]) == (83000, 2.0, 80000, 0.0)
     assert client.put("/api/gaps/alerts", json={"RthStart": 90000}).status_code == 400   # the RTH times go together
+    assert client.put("/api/gaps/alerts?symbol=ES", json={"RthStart": 90000}).status_code == 400
     got = client.get("/api/gaps/alerts").json()
-    assert got["switches"] == {"new": False, "fill": False}
+    assert got["switches"]["ES"] == {"new": False, "fill": False} and got["switches"]["NQ"] == {"new": False, "fill": True}
     told = [x for x in client.heard if x["type"] == "gap_alerts"]
-    assert len(told) == 6 and told[-1] == {"type": "gap_alerts", "alerts": got["alerts"], "switches": got["switches"]}
+    assert len(told) == 8 and told[-1] == {"type": "gap_alerts", "alerts": got["alerts"], "switches": got["switches"]}
 
 
 def test_gap_alert_switches_from_before_they_were_shared_are_off_where_any_symbols_is():
     """Saved before the switches were every chart's: each symbol's config had its own (the chart that last saved
     gave them all its own, a symbol switched on from another chart since kept that one's). The shared switch is off
-    where any is (it silences, never turns one on), and every config takes it."""
+    where any is (it silences, never turns one on), and every config takes it: every symbol's (round 14: each
+    symbol's from then on, starting from those)."""
     from chartsrv.gaps_service import GapService
-    saved = {"gap_alerts": {"ES": {"on": True, "new": True, "fill": False}, "NQ": {"on": True, "new": True, "fill": True}}}
-    store = SimpleNamespace(get_setting=lambda k, d=None: saved.get(k, d), set_setting=saved.__setitem__)
-    g = GapService(SimpleNamespace(store=store))
-    assert g.switches == {"new": True, "fill": False}
+    inst = SimpleNamespace(rth=("08:30", "15:00"))
+
+    def service(saved: dict) -> GapService:
+        store = SimpleNamespace(get_setting=lambda k, d=None: saved.get(k, d), set_setting=saved.__setitem__)
+        return GapService(SimpleNamespace(store=store, instruments={"ES": inst, "NQ": inst, "CL": inst}))
+    g = service({"gap_alerts": {"ES": {"on": True, "new": True, "fill": False}, "NQ": {"on": True, "new": True, "fill": True}}})
+    assert g.switches() == {s: {"new": True, "fill": False} for s in ("ES", "NQ", "CL")}
     assert all(c["fill"] is False and c["new"] is True for c in g.alert_cfg.values())
     # no symbol's alerts on yet, 'Alert on new gap' off in the starting settings (Apply to all charts)
-    saved = {"ind_settings": {"gap": {"AlertOnNewGap": False}}}
-    assert GapService(SimpleNamespace(store=store)).switches == {"new": False, "fill": True}
-    saved["gap_alert_switches"] = {"new": True, "fill": True}   # once stored, those
-    assert GapService(SimpleNamespace(store=store)).switches == {"new": True, "fill": True}
+    assert service({"ind_settings": {"gap": {"AlertOnNewGap": False}}}).switches()["NQ"] == {"new": False, "fill": True}
+    assert service({"gap_alert_switches": {"new": True, "fill": True}, "ind_settings": {"gap": {"AlertOnNewGap": False}}}
+                   ).switches()["NQ"] == {"new": True, "fill": True}   # once stored, those

@@ -30,9 +30,9 @@ const calls = [], els = {};
 const $ = (q) => (els[q] ||= { textContent: '', checked: false });
 const api = async (method, url, body) => {
   calls.push([method, url, body]);
-  const sym = url.split('/').pop();
+  const [path, query] = url.split('?'), sym = new URLSearchParams(query || '').get('symbol') || path.split('/').pop();
   if (sym !== 'alerts' && !S.instruments[sym]) throw new Error(`unknown symbol ${sym}`);   // app.py: 404
-  return url.endsWith('/alerts') ? { alerts: {} } : { ...body };
+  return path.endsWith('/alerts') ? { alerts: {} } : { ...body };
 };
 const gapSpecOk = () => true, indReady = () => true;
 const S = { symbol: 'ES', rth: false, st: { gap: true }, gaps: { gaps: [] }, gapError: '',
@@ -69,8 +69,10 @@ def test_a_gap_settings_save_keeps_the_alerts_switched_off_or_to_other_hours_on_
         assert client.request(method, url, json=b).status_code == 200, url
     got = client.get("/api/gaps/alerts").json()["alerts"]
     assert (got["ES"]["on"], got["ES"]["rth"], got["NQ"]["on"]) == (True, True, False)
-    # the shared settings are every symbol's (each keeps its own on and hours), the alerting ones restarted with them
-    assert all(got[s]["MinimumGapPoints"] == 2 and got[s]["fill"] is False for s in ("ES", "NQ"))
+    # this ES chart's settings are ES's alerts' (they keep their own on and hours), restarted with them; NQ's keep
+    # theirs (round 14: each symbol's)
+    assert (got["ES"]["MinimumGapPoints"], got["ES"]["fill"]) == (2, False)
+    assert (got["NQ"]["MinimumGapPoints"], got["NQ"]["fill"]) == (0, True)
     from chartsrv.app import M
     assert M().gaps.watches["ES"].cfg["MinimumGapPoints"] == 2 and "NQ" not in M().gaps.watches
 
@@ -111,7 +113,7 @@ def test_the_page_follows_with_a_symbol_no_longer_an_instrument_in_its_copy():
     on = {"on": True, "rth": False, "MinimumGapPoints": 0}
     out = follow({"ES": on, "RTY": on, "NQ": on})
     assert out["err"] is None
-    assert [(m, u) for m, u, _ in out["calls"]] == [("PUT", "/api/gaps/alerts")]
+    assert [(m, u) for m, u, _ in out["calls"]] == [("PUT", "/api/gaps/alerts?symbol=ES")]
     sent = out["calls"][0][2]
     assert "on" not in sent and "rth" not in sent and sent["MinimumGapPoints"] == 2 and sent["fill"] is False
 

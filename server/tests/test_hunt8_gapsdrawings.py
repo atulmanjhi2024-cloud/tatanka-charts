@@ -35,9 +35,11 @@ console.log(JSON.stringify({ calls, gapSet: S.gapSet }));
 
 @needs_node
 def test_apply_to_all_charts_gives_the_gap_alerts_the_new_settings():
-    """This tab has Gap settings of its own (RTH from 09:00, minimum size 1), which the chart keeps in S.gapSet until
+    """This ES tab has Gap settings of its own (RTH from 09:00, minimum size 1), which the chart keeps in S.gapSet until
     Apply to all charts clears them. Minimum size 5 and no fill alerts, applied to every chart: the server's gap
-    alerts take the settings every chart now shows, the tab's RTH start included, not the tab's old minimum size."""
+    alerts for ES take the settings every chart now shows, the tab's RTH start included, not the tab's old minimum
+    size; the alert switch and those are ES's (round 14: another symbol's alerts keep theirs), and the question says
+    so."""
     from test_hunt3_web_ui import IND_JS, IND_PARTS, SCHEMA, WEB
     from test_hunt_web_chart import run_app
     own = {"RthStart": 90000, "MinimumGapPoints": 1}
@@ -45,8 +47,8 @@ def test_apply_to_all_charts_gives_the_gap_alerts_the_new_settings():
     js = js.replace(", gapAlertsFollow = async () => {}", ", gapSpecOk = () => true")   # app.js' own, below
     js = js.replace("tabSet = () => ({})", f"tabSet = () => ({{ gap: {json.dumps(own)} }})")
     js = js.replace("const api = async (method, path, body) => {", """const api = async (method, path, body) => {
-  if (path === '/api/gaps/alerts') { calls.push(`${method} ${path} ${JSON.stringify(body)}`); return { alerts: {} }; }""")
-    js = js.replace("ask: async () => null", "ask: async () => true").replace("['amt', 'ifthen', 'lines'].map(indAdapter)", "['gap'].map(indAdapter)")
+  if (path.split('?')[0] === '/api/gaps/alerts') { calls.push(`${method} ${path} ${JSON.stringify(body)}`); return { alerts: {} }; }""")
+    js = js.replace("ask: async () => null", "ask: async (o) => { calls.push(`ASK ${o.message}`); return true; }").replace("['amt', 'ifthen', 'lines'].map(indAdapter)", "['gap'].map(indAdapter)")
     js = js.replace("const S = { st: { amt: true, ifthen: true, lines: true }",
                     "const S = { st: { gap: true }, gapAlerts: {}, gaps: null, gapError: '', gapSet: "
                     f"{json.dumps({**GAP_SET, **own})}")
@@ -56,10 +58,13 @@ def test_apply_to_all_charts_gives_the_gap_alerts_the_new_settings():
                          "GAP_SWITCH", "GAP_SHARED", "gapShown"]
     out = run_app(parts, f"(async () => {{ {js} }})().catch((e) => {{ console.error(e); process.exit(1); }});")
     assert out["gapSet"]["MinimumGapPoints"] == 1   # still the tab's own here (indApply is stubbed): not what is sent
-    sent = [c for c in out["calls"] if c.startswith("PUT /api/gaps/alerts ")]
-    assert len(sent) == 1, out["calls"]
-    # the alert switches are every chart's: only the one changed here is sent (over the server's)
+    sent = [c for c in out["calls"] if c.startswith("PUT /api/gaps/alerts")]
+    assert len(sent) == 1 and sent[0].startswith("PUT /api/gaps/alerts?symbol=ES "), out["calls"]
+    # the alert switches are the symbol's: only the one changed here is sent (over the server's)
     assert json.loads(sent[0].split(" ", 2)[2]) == {"fill": False, "RthStart": 90000, "RthEnd": 150000, "MinimumGapPoints": 5}
+    (asked,) = [c for c in out["calls"] if c.startswith("ASK ")]
+    assert asked.endswith(" The alert switches go to every ES chart only, and only ES's gap alerts take the RTH times "
+                          "and minimum gap size: each symbol keeps its own.")
 
 
 # ---- k-gd8-2: Ctrl+Z after a delete on a once-live future's free-data chart brings its alert back -----------------------
@@ -126,9 +131,9 @@ def test_the_alerts_of_an_instrument_put_back_run_without_a_restart(tmp_path, mo
 # ---- k-gd8-4: a Gap settings save while an instrument is off Instruments reaches its gap alerts too --------------------
 
 def test_a_gap_settings_save_while_an_instrument_is_off_reaches_its_alerts(tmp_path, monkeypatch):
-    """ES's and NQ's gap alerts on, minimum size 0 and fills; NQ taken off Instruments. Gap settings saved with minimum
-    size 5 and no fill alerts: NQ's kept config takes them too (still not shown, no watch), so once NQ is back its
-    alerts run with them, as ES's do."""
+    """ES's and NQ's gap alerts on, minimum size 0 and fills; NQ taken off Instruments. Gap settings saved for every
+    symbol (no ?symbol=, as before round 14) with minimum size 5 and no fill alerts: NQ's kept config takes them too
+    (still not shown, no watch), so once NQ is back its alerts run with them, as ES's do."""
     app, client = _client(tmp_path, monkeypatch)
     with client as c:
         for s in ("ES", "NQ"):
@@ -136,7 +141,7 @@ def test_a_gap_settings_save_while_an_instrument_is_off_reaches_its_alerts(tmp_p
         set_instruments(c, [r for r in file_rows(tmp_path) if r["symbol"] not in ("NQ", "MNQ")])
     app, client = _client(tmp_path, monkeypatch)
     with client as c:
-        r = c.put("/api/gaps/alerts", json={**GAP, "MinimumGapPoints": 5.0, "fill": False})   # a Gap settings save
+        r = c.put("/api/gaps/alerts", json={**GAP, "MinimumGapPoints": 5.0, "fill": False})   # every symbol's
         assert r.status_code == 200 and set(r.json()["alerts"]) == {"ES"}
         g = app.state.market.gaps
         assert (g.alert_cfg["NQ"]["MinimumGapPoints"], g.alert_cfg["NQ"]["fill"], g.alert_cfg["NQ"]["on"]) == (5.0, False, True)

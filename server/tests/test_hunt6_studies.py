@@ -32,9 +32,9 @@ def test_gap_alerts_saved_before_the_hours_flag_keep_all_hours_on_a_settings_sav
     from test_hunt_web_chart import run_app
     out = run_app(["hhmm", "gapRth", "gapRthOk", "GAP_RTH_BAD", "gapAlertsPut", "renderGapInfo", "putGapAlerts",
                    "gapAlertsFollow"], FOLLOW_JS)
-    # one request with the shared settings and no hours: the server keeps each config's own, none for these (all
-    # hours; test_hunt7_gapsmonthly)
-    assert out["follow"] == [["/api/gaps/alerts", None]]
+    # one request with the settings and no hours, for the chart's symbol's alerts: the server keeps its config's own,
+    # none for this one (all hours; test_hunt7_gapsmonthly)
+    assert out["follow"] == [["/api/gaps/alerts?symbol=ES", None]]
 
 
 def test_identical_requests_with_no_htf_bar_forming_share_one_answer():

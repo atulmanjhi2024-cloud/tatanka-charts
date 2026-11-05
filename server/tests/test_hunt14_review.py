@@ -23,7 +23,14 @@ def gap_service(tmp_path, **saved):
     st = Store(tmp_path / "gs.db")
     for k, v in saved.items():
         st.set_setting(k, v)
-    return GapService(SimpleNamespace(store=st)), st
+    inst = SimpleNamespace(rth=("08:30", "15:00"))
+    return GapService(SimpleNamespace(store=st, instruments={"ES": inst, "NQ": inst, "CL": inst})), st
+
+
+def every(switches: dict) -> dict:
+    """Each instrument's alert switches, all the same: what the first start since they are each symbol's (round 14)
+    gives every one of the switches worked out here."""
+    return {s: switches for s in ("ES", "NQ", "CL")}
 
 
 def test_gap_alert_switches_worked_out_once_from_the_alerts_that_are_on_and_what_they_turn_off_is_said(tmp_path):
@@ -31,16 +38,18 @@ def test_gap_alert_switches_worked_out_once_from_the_alerts_that_are_on_and_what
     (NQ sent new-gap alerts). The shared switch is off (it silences, never turns one on), stored at once so the next
     start keeps it, and a notice of it waits for the next page; a symbol whose alerts are off counts for nothing (it
     fires nothing). Before: worked out again at every start, from every config, and nothing said, so NQ's new-gap
-    alerts stopped silently."""
+    alerts stopped silently. Since round 14 the switches are each symbol's: every symbol starts from the shared ones
+    worked out here."""
+    from chartsrv.gaps_service import SYMBOL_SWITCHES
     g, st = gap_service(tmp_path, gap_alerts={"ES": {"on": True, "new": False, "fill": True, **BASE},
                                               "NQ": {"on": True, "new": True, "fill": True, **BASE},
                                               "CL": {"on": False, "new": True, "fill": False, **BASE}})
-    assert g.switches == {"new": False, "fill": True}
+    assert g.switches() == every({"new": False, "fill": True})
     assert g.alert_cfg["NQ"]["new"] is False and g.alert_cfg["NQ"]["fill"] is True
-    assert st.get_setting("gap_alert_switches") == {"new": False, "fill": True}
+    assert st.get_setting(SYMBOL_SWITCHES) == every({"new": False, "fill": True})
     assert g.notice == ["new"]
     again, _ = gap_service(tmp_path)   # the next start: as stored, the notice still waiting
-    assert (again.switches, again.notice) == ({"new": False, "fill": True}, ["new"])
+    assert (again.switches(), again.notice) == (every({"new": False, "fill": True}), ["new"])
     assert again.told() == ["new"] and again.told() == []   # handed to one page only
     assert gap_service(tmp_path)[0].notice == []
 
@@ -52,11 +61,11 @@ def test_a_stale_starting_gap_setting_does_not_overrule_the_alerts_as_saved_sinc
     settings still count, and say so."""
     g, _ = gap_service(tmp_path, ind_settings={"gap": {"AlertOnGapFill": False}},
                        gap_alerts={"ES": {"on": True, "new": True, "fill": True, **BASE}})
-    assert (g.switches, g.notice, g.alert_cfg["ES"]["fill"]) == ({"new": True, "fill": True}, [], True)
+    assert (g.switches(), g.notice, g.alert_cfg["ES"]["fill"]) == (every({"new": True, "fill": True}), [], True)
     g, _ = gap_service(tmp_path / "none", ind_settings={"gap": {"AlertOnNewGap": False}})
-    assert (g.switches, g.notice) == ({"new": False, "fill": True}, ["new"])
+    assert (g.switches(), g.notice) == (every({"new": False, "fill": True}), ["new"])
     g, _ = gap_service(tmp_path / "fresh")
-    assert (g.switches, g.notice) == ({"new": True, "fill": True}, [])
+    assert (g.switches(), g.notice) == (every({"new": True, "fill": True}), [])
 
 
 def test_the_gap_alert_switches_the_first_start_turned_off_are_said_once(tmp_path, monkeypatch):
@@ -73,7 +82,8 @@ def test_the_gap_alert_switches_the_first_start_turned_off_are_said_once(tmp_pat
     from chartsrv.app import app
     with TestClient(app) as c:
         got = c.get("/api/gaps/alerts").json()
-        assert (got["switches"], got["notice"], got["alerts"]["NQ"]["new"]) == ({"new": False, "fill": True}, ["new"], False)
+        assert (got["switches"]["NQ"], got["notice"], got["alerts"]["NQ"]["new"]) == ({"new": False, "fill": True}, ["new"], False)
+        assert all(sw == {"new": False, "fill": True} for sw in got["switches"].values())   # every symbol's, from then on its own
         assert c.delete("/api/gaps/alerts/notice").json() == {"notice": ["new"]}
         assert c.delete("/api/gaps/alerts/notice").json() == {"notice": []}
         assert c.get("/api/gaps/alerts").json()["notice"] == []
@@ -86,10 +96,10 @@ def test_a_page_says_the_gap_alert_switches_the_server_turned_off_once():
     message, as the page only told what it turned off itself, and the server's was off already)."""
     from test_hunt13_amt import pages
     out = pages("""
-  SRV.switches = { new: false, fill: true }; SRV.notice = ['new'];
+  SRV.switches = { ES: { new: false, fill: true }, NQ: { new: false, fill: true } }; SRV.notice = ['new'];
   SRV.gap = { ES: { on: true, new: false, fill: true, rth: false }, NQ: { on: true, new: false, fill: true, rth: false } };
   const A = page();
-  A.S.tabs = [{ own: { set: { gap: { AlertOnGapFill: false } } } }];
+  A.S.tabs = [{ sym: 'ES', own: { set: { gap: { AlertOnGapFill: false } } } }];
   await A.hello(); await A.moveSharedOut();
   const B = page();
   await B.hello(); await B.moveSharedOut();
@@ -100,10 +110,10 @@ def test_a_page_says_the_gap_alert_switches_the_server_turned_off_once():
   out.server = [copy(SRV.switches), SRV.notice];
 """)
     a, b, c = out["toasts"]
-    assert len(a) == 1 and "as this chart had it: Gap Analysis: Alert on full gap fill." in a[0]
-    assert "as the gap alerts had it before: Gap Analysis: Alert on new gap." in a[0]
+    assert len(a) == 1 and "Off on every ES chart, as this chart had it: Gap Analysis: Alert on full gap fill." in a[0]
+    assert "Off on every chart, as the gap alerts had it before: Gap Analysis: Alert on new gap." in a[0]
     assert b == [] and c == []
-    assert out["server"] == [{"new": False, "fill": False}, []]
+    assert out["server"] == [{"ES": {"new": False, "fill": False}, "NQ": {"new": False, "fill": True}}, []]
 
 
 # ---- r14-review-2: Yahoo throttling mid-round ---------------------------------------------------------------------------

@@ -214,8 +214,8 @@ Tabs are remembered per chart and saved in the workspace.
   template** (⚙ Chart). Chart templates saved before the two were split became one of each, with the same name.
 - **Presets:** in the Tatanka settings dialog, **Presets ▾** saves that indicator's settings under a name and loads
   them back (NinjaTrader's "Save as template"); Apply or OK uses what was loaded. Only the chart's own: the settings
-  charts share (the AMT Toolkit's alert settings, the same on every chart of the symbol; Gap Analysis' alert switches
-  and the levels file, the same on every chart) are not saved in one and stay as they are when one loads.
+  charts share (the AMT Toolkit's alert settings and Gap Analysis' alert switches, the same on every chart of the
+  symbol; the levels file, the same on every chart) are not saved in one and stay as they are when one loads.
 - All three are saved on the server: every device has them.
 - **Naming one** (any template or preset, drawings' too): the name box lists the saved ones (**▾** shows them all) and
   narrows as you type; ↑/↓ then Enter or Tab, or a tap, takes one. A name that is saved already turns **Save** into

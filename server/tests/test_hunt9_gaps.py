@@ -48,29 +48,37 @@ def watching(m, sent):
 # ---- k-gd9-1: Gap RTH times that make no session on an instrument's own hours ------------------------------------------
 
 def test_gap_times_that_make_no_session_on_an_instruments_hours_are_refused_and_nothing_is_stored(tmp_path, monkeypatch):
-    """ES's and CL's gap alerts on. A Gap settings save of 11:00-12:00, and switching ES's alerts on with them, answer
-    400 naming CL, and nothing is stored (before: the save's 400 came after the store, and the next start raised).
-    Switching alerts off is never refused. CL's Gap Analysis with them answers a 400 that says why, not a server
-    error; ES's is drawn. The server starts again, CL's alerts running."""
+    """ES's and CL's gap alerts on. A Gap settings save of 11:00-12:00 for every symbol, or for CL, and switching CL's
+    alerts on with them, answer 400 naming CL, and nothing is stored (before: the save's 400 came after the store, and
+    the next start raised). For ES alone (a save on an ES chart, switching ES's alerts on) they are ES's only since
+    round 14, so CL's hours have no say: taken, CL's config left as it was. Switching alerts off is never refused.
+    CL's Gap Analysis with them answers a 400 that says why, not a server error; ES's is drawn. The server starts
+    again, ES's alerts running on them."""
     app, client = _client(tmp_path, monkeypatch)
     with client as c:
         m = app.state.market
         for s in ("ES", "CL"):
             assert c.put(f"/api/gaps/alerts/{s}", json={**GAP, "on": True}).status_code == 200
         before = stored_gap_alerts(c, m)
-        for path, body in (("/api/gaps/alerts", MIDDAY), ("/api/gaps/alerts/ES", {**MIDDAY, "on": True})):
+        for path, body in (("/api/gaps/alerts", MIDDAY), ("/api/gaps/alerts?symbol=CL", MIDDAY),
+                           ("/api/gaps/alerts/CL", {**MIDDAY, "on": True})):
             r = c.put(path, json=body)
             assert r.status_code == 400 and "CL" in r.json()["detail"], (path, r.text)
             assert stored_gap_alerts(c, m) == before == m.gaps.alert_cfg
+        for path, body in (("/api/gaps/alerts?symbol=ES", MIDDAY), ("/api/gaps/alerts/ES", {**MIDDAY, "on": True})):
+            assert c.put(path, json=body).status_code == 200, path
+        got = stored_gap_alerts(c, m)
+        assert (got["ES"]["RthStart"], got["ES"]["RthEnd"]) == (110000, 120000) and got["CL"] == before["CL"]
         q = {"spec": "5m", "RthStart": 110000, "RthEnd": 120000}
         r = c.get("/api/gaps", params={**q, "symbol": "CL"})
         assert r.status_code == 400 and "CL" in r.json()["detail"], r.text
         assert c.get("/api/gaps", params={**q, "symbol": "ES"}).status_code == 200
-        assert c.put("/api/gaps/alerts/ES", json={**MIDDAY, "on": False}).status_code == 200   # off: always
-        assert sorted(m.gaps.watches) == ["CL"]
+        assert c.put("/api/gaps/alerts/CL", json={**MIDDAY, "on": False}).status_code == 200   # off: always
+        assert sorted(m.gaps.watches) == ["ES"]
     app, client = _client(tmp_path, monkeypatch)
     with client as c:
-        assert sorted(app.state.market.gaps.watches) == ["CL"]
+        assert sorted(app.state.market.gaps.watches) == ["ES"]
+        assert app.state.market.gaps.watches["ES"].cfg["RthStart"] == 110000
 
 
 def test_a_database_that_holds_such_a_config_starts(tmp_path, monkeypatch, caplog):

@@ -751,8 +751,9 @@ def _amt_said(m):
     m.broadcast({"type": "amt_settings", "overrides": m.amt.overrides, "symbols": m.amt.per_symbol, "alerts": m.amt.alert_cfg})
 
 
-def _amt_symbol(m, symbol: str | None) -> str | None:
-    """The symbol whose alert settings a change is for (None: every symbol's); 404 if it is no instrument."""
+def _alert_symbol(m, symbol: str | None) -> str | None:
+    """The symbol whose alert settings a change is for (None: every symbol's), the AMT Toolkit's or Gap Analysis'; 404
+    if it is no instrument."""
     if symbol is None:
         return None
     if symbol.upper() not in m.instruments:
@@ -766,7 +767,7 @@ async def amt_settings(overrides: dict, symbol: str | None = None):
     GET /api/amt) are the symbol's, every chart of it (?symbol=NQ), or with no symbol every symbol's; the rest every
     chart's."""
     m = M()
-    sym = _amt_symbol(m, symbol)
+    sym = _alert_symbol(m, symbol)
     try:
         m.amt.set_overrides(overrides, sym)
     except (KeyError, ValueError, TypeError) as e:
@@ -780,7 +781,7 @@ async def amt_settings_change(changes: dict, symbol: str | None = None):
     """Only the settings that changed, over the server's as they are now (one at its default goes back to it): the
     alert settings the symbol's (?symbol=NQ: every NQ chart's; with no symbol every symbol's), the rest every chart's."""
     m = M()
-    sym = _amt_symbol(m, symbol)
+    sym = _alert_symbol(m, symbol)
     try:
         m.amt.merge_overrides(changes, sym)
     except (KeyError, ValueError, TypeError) as e:
@@ -794,7 +795,7 @@ async def amt_settings_check(overrides: dict, symbol: str | None = None):
     """A chart's own AMT settings, checked as the Toolkit does, without saving them: the chart keeps them (with its
     symbol's alert settings, or with none given NinjaTrader's)."""
     m = M()
-    sym = _amt_symbol(m, symbol)
+    sym = _alert_symbol(m, symbol)
     try:
         return {"overrides": m.amt.chart_settings(overrides, sym)[1]}
     except (KeyError, ValueError, TypeError) as e:
@@ -904,14 +905,14 @@ async def gap_analysis(symbol: str, spec: str, RthStart: int = 83000, RthEnd: in
 
 
 class GapSettingsIn(BaseModel):                     # what is left out stays as it is
-    new: bool | None = None                         # the alert switches, every chart's: sent when changed
+    new: bool | None = None                         # the alert switches, the symbol's (its charts'): sent when changed
     fill: bool | None = None
     RthStart: int | None = None
     RthEnd: int | None = None
     MinimumGapPoints: float | None = Field(None, ge=0)
 
 
-class GapAlertsIn(BaseModel):                       # the alert switches are every chart's (PUT /api/gaps/alerts)
+class GapAlertsIn(BaseModel):                       # the alert switches are the symbol's (PUT /api/gaps/alerts?symbol=)
     on: bool
     rth: bool = False                               # regular-hours minutes only, as the RTH chart it was switched on from
     RthStart: int = 83000
@@ -920,14 +921,21 @@ class GapAlertsIn(BaseModel):                       # the alert switches are eve
 
 
 def _gaps_said(m):
-    """Every page hears the gap alerts as they are now (each symbol's and the alert switches), as _amt_said."""
-    m.broadcast({"type": "gap_alerts", "alerts": m.gaps.shown(), "switches": m.gaps.switches})
+    """Every page hears the gap alerts as they are now, each symbol's (its config, and its alert switches), as
+    _amt_said: a page shows each symbol's own, so a change of NQ's leaves what an ES chart shows as it is."""
+    m.broadcast({"type": "gap_alerts", "alerts": m.gaps.shown(), "switches": m.gaps.switches()})
 
 
 @app.get("/api/gaps/alerts")
-async def gap_alerts_info():
+async def gap_alerts_info(symbol: str | None = None):
+    """Each instrument's gap alerts (its config: on, rth, its RTH times and minimum gap size, its alert switches) and
+    alert switches (symbol -> {new, fill}); ?symbol=NQ: NQ's only (an unknown one 404)."""
     m = M()
-    return {"alerts": m.gaps.shown(), "switches": m.gaps.switches, "watches": m.gaps.health(), "notice": m.gaps.notice}
+    alerts, switches = m.gaps.shown(), m.gaps.switches()
+    sym = _alert_symbol(m, symbol)
+    if sym:
+        alerts, switches = {k: v for k, v in alerts.items() if k == sym}, {sym: switches[sym]}
+    return {"alerts": alerts, "switches": switches, "watches": m.gaps.health(), "notice": m.gaps.notice}
 
 
 @app.delete("/api/gaps/alerts/notice")
@@ -938,16 +946,18 @@ async def gap_alerts_told():
 
 
 @app.put("/api/gaps/alerts")
-async def gap_alerts_follow(body: GapSettingsIn):
-    """A chart's Gap settings saved: every symbol's alerts take them, each keeping its own on and rth (the page's copy
-    of those is from its hello; another chart, tab or device may have switched them since)."""
+async def gap_alerts_follow(body: GapSettingsIn, symbol: str | None = None):
+    """A chart's Gap settings saved, for its symbol's alerts (?symbol=NQ: every NQ chart's switches, and NQ's alerts
+    take the RTH times and minimum gap size), or with no symbol every symbol's, as before: each keeps its own on and rth
+    (the page's copy of those is from its hello; another chart, tab or device may have switched them since)."""
     m = M()
+    sym = _alert_symbol(m, symbol)
     try:
-        m.gaps.follow({k: v for k, v in body.model_dump().items() if v is not None})
+        m.gaps.follow({k: v for k, v in body.model_dump().items() if v is not None}, sym)
     except ValueError as e:
         raise HTTPException(400, str(e))
     _gaps_said(m)
-    return {"alerts": m.gaps.shown(), "switches": m.gaps.switches}
+    return {"alerts": m.gaps.shown(), "switches": m.gaps.switches()}
 
 
 @app.put("/api/gaps/alerts/{symbol}")

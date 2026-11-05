@@ -4,9 +4,9 @@
    Each indicator is an adapter from app.js: { key, title, version, shown(), show(on), schema(), defaults() (what a
    chart starts from), ntDefaults() (NinjaTrader's), overrides() (the chart's changes from defaults()), perSymbol(),
    save(draft, symbolDraft), applyAll(draft), colorFormat ('argb' for the AMT Toolkit, else 'hex'), sharedNames (a Set:
-   the settings that are the same on every chart, such as the alert switches; optional), symbolShared (a Set: those of
-   them that are the same on every chart of the symbol, such as the AMT Toolkit's alert settings; optional), allNote()
-   (what Apply to all charts' question adds; optional) }. The settings are each chart's; Apply to all charts puts the
+   the settings that are not a chart's own, such as the alert switches and the levels file; optional), symbolShared (a
+   Set: those of them that are the same on every chart of the symbol, such as the AMT Toolkit's alert settings and Gap
+   Analysis' alert switches; optional), allNote() (what Apply to all charts' question adds; optional) }. The settings are each chart's; Apply to all charts puts the
    shown ones on every chart (env.allCharts). */
 'use strict';
 
@@ -242,7 +242,7 @@ function createIndicatorsDialog(env) {
   }
   // Presets, NinjaTrader's "Save as template": this indicator's settings under a name, on every device. Loading one
   // fills the dialog; Apply or OK uses it. Only the chart's own: the settings charts share (the alert switches, every
-  // chart of the symbol's or every chart's; the levels file) are not saved in one and stay as they are when one loads.
+  // chart of the symbol's; the levels file, every chart's) are not saved in one and stay as they are when one loads.
   // (Chart and indicator templates are the chart's, in its own menus.)
   const presetPart = (a, d, shared = false) => Object.fromEntries(Object.entries(d || {}).filter(([k]) => !!a.sharedNames?.has(k) === shared));
   function renderTpl() {

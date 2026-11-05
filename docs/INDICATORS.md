@@ -17,7 +17,8 @@ default; TPO Profile is there to turn on. Each is a row in Studies ▾.
   layout, the chart last clicked), on every device that opens the workspace. **Apply to all charts** puts the
   selected indicator's settings, as shown, on every tab of every chart, layout and workspace: they become the
   starting settings (what a new chart gets) and each chart's own for that indicator goes. The other indicators keep
-  theirs. The AMT Toolkit's alert settings are the exception: they go to the charts of the chart's symbol only (below).
+  theirs. The AMT Toolkit's alert settings and Gap Analysis' alert switches are the exception: they go to the charts
+  of the chart's symbol only (below).
 - A few settings belong to one chart in NinjaTrader, so here they are per symbol (marked with the symbol in the
   dialog): the AMT Toolkit's Paste Levels Here, the If/Then block and instrument label, Level Lines' range and
   custom levels.
@@ -197,23 +198,37 @@ trades into them; the table shows the latest gap, its fill, bars elapsed and the
 - RTH start and end are NinjaTrader's HHmmss settings, Chicago time (83000 and 150000), at each instrument's own
   hours (CL 80000 and 133000, as the AMT Toolkit above). Times that an instrument's hours move to the same minute
   or past each other (110000-120000 is 10:30-10:30 on CL and 09:50-09:30 on GC, a session through the night) are
-  refused, naming it, also on the hours of one taken off Instruments whose gap alerts are kept on (its saved or
-  catalog hours); alerts stored with such times from before stay off, the Studies panel saying why. History (days
-  scanned) is in the Studies menu.
+  refused on that instrument's chart and for its alerts, naming it (fine on ES, they are ES's: CL's alerts keep
+  theirs); a change for every symbol (the API with no symbol, below) is checked on every instrument's hours, and on
+  those of one taken off Instruments whose gap alerts are kept on (its saved or catalog hours). Alerts stored with
+  such times from before stay off, the Studies panel saying why. History (days scanned) is in the Studies menu.
 - Alerts: "Alerts to Discord/phone" turns on new-gap and full-fill alerts for that symbol, with its current
   RTH and minimum size. They run on the server from a 1-minute engine, so "filled in N bars" counts minutes.
   Turned on from an RTH chart they watch only the regular hours' minutes, so a gap fills when it does on that chart
   (the Studies panel then says "Alerts: ... (RTH)"); from an ETH chart, all hours. One setting per symbol: the hours
   of the chart that last turned them on. Off by default; history never alerts, only live data (and none while the
-  stretch up to the live trades is still being filled: see [Alerts](ALERTS.md#alerts)). Saving Gap Analysis'
-  settings on any chart gives its RTH and minimum size to every symbol's alerts, each staying on or off at its own
-  hours, whichever chart or device last switched it (`PUT /api/gaps/alerts`, which takes what it is given). The alert
-  switches (Alert on new gap, Alert on full gap fill) are the same on every chart and symbol (unlike the AMT Toolkit's,
-  which are each symbol's): the dialog shows the server's, a change on any chart applies to every chart and symbol and
-  shows at once on every open page, a preset leaves them as they are, and one a chart had turned off in its own
-  settings before is turned off everywhere once (as above). The server works them out once, at its first start after
-  the update, from each symbol's alerts as saved (off where a symbol whose alerts are on had it off; with no alerts
-  saved, as the starting settings have it), and the next page to open says which it turned off.
+  stretch up to the live trades is still being filled: see [Alerts](ALERTS.md#alerts)).
+- **The alert settings are each symbol's**, as the AMT Toolkit's. The alert switches (Alert on new gap, Alert on
+  full gap fill; marked with the symbol in the dialog) are the same on every chart of the symbol: the dialog shows
+  the server's for the chart's symbol, and unticking one on an NQ chart turns it off on every NQ chart, tab and
+  device at once and leaves ES's as they are. Saving Gap Analysis' settings on a chart gives its RTH and minimum size
+  to that symbol's alerts only (a minimum is in the instrument's points, and the hours are each product's), which
+  stay on or off at their own hours, whichever chart or device last switched them. Apply to all charts on an ES
+  chart gives the alert switches to ES's charts only, and only ES's alerts take its RTH and minimum size (every chart
+  starts from them as usual). Each instrument has its own (micros too: MES's are not ES's); one added later starts
+  with both on. A preset leaves the switches as they are, and one a chart's tab had turned off in its own settings
+  before they were shared is turned off on every chart of that tab's symbol once (as above).
+- From a version where the switches were the same on every chart and symbol, the first start gives every instrument
+  (and each symbol whose gap alerts are kept off Instruments) the ones it had, once, so nothing set is lost; each
+  symbol's alerts keep their own RTH and minimum size. From one older still, the server works the switches out first
+  from each symbol's alerts as saved (off where a symbol whose alerts are on had it off; with no alerts saved, as the
+  starting settings have it), and the next page to open says which it turned off.
+- API: `GET /api/gaps/alerts` gives each instrument's gap alerts (`alerts`: on, rth, RTH times, minimum size and
+  switches) and its alert switches (`switches`, by symbol); `?symbol=NQ` gives NQ's only. `PUT
+  /api/gaps/alerts?symbol=NQ` takes a chart's Gap settings for NQ (`new`, `fill`, `RthStart` with `RthEnd`,
+  `MinimumGapPoints`; what is left out stays as it is); with no symbol, every symbol's, as before. `PUT
+  /api/gaps/alerts/NQ` switches NQ's alerts on or off. Every open page hears each change (`gap_alerts`, with each
+  symbol's).
 
 Parity check against the original C# (needs mono), from `server/`:
 `tests/gap_csharp/build.sh <tatanka-indicators checkout> <workdir>`, then
