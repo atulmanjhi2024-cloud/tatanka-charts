@@ -120,6 +120,7 @@ const S = {
   bars: [], rangeProfile: null, anchoring: false,
   favs: loadFavs(), tfCustom: loadTfCustom(), instruments: {}, levels: {}, alerts: [], events: [], quotes: {},
   subId: 0, kind: 'time', seqTime: new Map(), placing: false, ws: null, retry: 0, lastBar: null, hovering: false,
+  loadedKey: '', loadedSym: '', loadNote: '',   // whose bars are on the chart (symbol, timeframe, session); what it waits for
 };
 // Chart tabs, as on a NinjaTrader chart window: each is a symbol and bar type. Each tab has its own indicators (the
 // studies, indicators, their order, hidden ones, and its own Tatanka settings) unless it is linked to the chart's
@@ -2362,6 +2363,7 @@ function applyHistory(m) {
   fillsSchedule(300);
   const scaleKey = viewKey(), want = S.viewWant;
   S.loadedKey = scaleKey;
+  S.loadedSym = S.symbol;   // whose bars the chart shows (subscribe())
   S.viewWant = null;
   if (viewApply(want)) S.scaleKey = scaleKey;   // the tab's view from before (or the same bars again: as they were)
   else {
@@ -2376,8 +2378,39 @@ function applyHistory(m) {
   if (S.goTo != null) { const ms = S.goTo; S.goTo = null; goToTime(ms); }   // a journal trade on another symbol
   if (ax.pick === 'exchange' && exch().tz !== ax.zone) setChartZone('exchange', false);   // another exchange's clock
   cmpLoad();
-  legend(S.lastBar);
+  loadNote('');   // loaded: the legend says the source
   header();
+}
+// The chart's bars, gone: while another symbol's bars (a free-data chart's other timeframe or session) are on their
+// way, and when they don't come. The tab's view to restore (S.viewWant) stays for them.
+function barsClear() {
+  cmpClear();
+  S.seqTime.clear();
+  vol.setData([]);
+  candles.setData([]);
+  S.bars = [];
+  S.lastBar = null;
+  S.loadedKey = S.loadedSym = '';
+  altSetData();
+  S.fp.clear();
+  setStudyData();
+  indsUpdate(true);
+  S.hema = null;
+  hemaDraw();
+  S.dsma = null;
+  S.dsmaLive.clear();
+  dsmaDraw();
+  priceLineLayout();
+  header();
+}
+// What the chart is waiting for, or why it has no bars: after the legend's name (which every legend() keeps), and
+// `over` the chart while it has no bars.
+function loadNote(note, over = note) {
+  S.loadNote = note;
+  const el = $('#chart-msg');
+  el.textContent = note && !S.bars.length ? over : '';
+  el.hidden = !el.textContent;
+  legend(S.lastBar);
 }
 
 function applyBars(m) {
@@ -2488,7 +2521,7 @@ function legend(b) {
   const el = $('#legend');
   const sp = `${specLabel(S.spec)}${S.rth && (!S.ext || exch().rth) ? ' RTH' : ''}${S.ext?.source ? (extSeries() ? ` · ${S.ext.source.toUpperCase()}` : S.ext.source === 'alpaca' ? ' · real time' : S.ext.source === 'ibkr' ? (S.ext.feed === 'live' ? ' · IBKR real time' : ' · IBKR delayed') : ' · delayed') : ''}`;
   legendStudies(b);
-  el.textContent = `${S.replay ? 'REPLAY  ' : ''}${S.symbol} ${sp}`;   // just what the chart is: no O H L C V Δ line
+  el.textContent = `${S.replay ? 'REPLAY  ' : ''}${S.symbol} ${sp}${S.loadNote ? ` · ${S.loadNote}` : ''}`;   // just what the chart is: no O H L C V Δ line
   dataWindow(b);
   cmpLegend();
 }
@@ -2695,6 +2728,7 @@ function drawLevels() {
 
 // ---- header -------------------------------------------------------------------------------
 function header() {
+  // S.lastBar is this symbol's: subscribe() clears another symbol's bars (barsClear) before this one's come
   const last = S.lastBar?.c, q = S.quotes[wlKey(S.symbol, S.instruments)];   // ZM1!'s, not Zoom's; the live ES's: ES1!
   $('#q-last').textContent = px(last);
   const chg = $('#q-chg'), abs = chg.querySelector('.abs'), pct = chg.querySelector('.pct');
@@ -2838,21 +2872,32 @@ function extSpecFor(spec, src) {   // the nearest timeframe the chart's source c
   const ms = specSeconds(spec);
   return ok.filter((x) => /[mh]$/.test(x) && specSeconds(x) <= ms).at(-1) || '1m';
 }
-let extTimer = 0;
+let extTimer = 0, extStop = null;
+// How long a free-data chart waits for its bars: past the server's longest answer (ext.py ANSWER_S: IBKR 10 s at most,
+// then Alpaca, then Yahoo, each with a limit), so a source that hangs still leaves time for the next one's bars.
+// Not answered (or the server's error): the chart says so, with none of the bars before, and asks again in a while.
+const EXT_WAIT_MS = 60e3, EXT_RETRY_MS = 15e3;
 const extEvery = () => (extSeries() ? 1800e3 : calSpec() ? 120e3 : S.ext?.source === 'alpaca' ? 10e3 : S.ext?.source === 'ibkr' ? 15e3 : 30e3);   // newest bars
 async function extLoad(poll = false) {
   clearTimeout(extTimer);
-  const sym = S.symbol, spec = S.spec, id = S.subId;
+  extStop?.abort();   // an answer still on its way: not waited for any more
+  const stop = extStop = new AbortController(), sym = S.symbol, spec = S.spec, id = S.subId;
+  const mine = () => id === S.subId && sym === S.symbol;   // still this chart (subscribe() since: another symbol, timeframe or session)
   try {
-    const d = await api('GET', `/api/ext/bars?symbol=${encodeURIComponent(sym)}&spec=${encodeURIComponent(spec)}&rth=${S.rth ? 1 : 0}`);
-    if (id !== S.subId || sym !== S.symbol || spec !== S.spec || !S.ext) return;
+    const d = await api('GET', `/api/ext/bars?symbol=${encodeURIComponent(sym)}&spec=${encodeURIComponent(spec)}&rth=${S.rth ? 1 : 0}`, null,
+      { timeout: EXT_WAIT_MS, signal: stop.signal });
+    if (!mine() || spec !== S.spec || !S.ext) return;
+    // another source took over (IBKR too slow for a while, or back): its bars in full, not joined onto the other's
+    const moved = poll && (d.source !== S.ext.source || d.feed !== S.ext.feed);
     Object.assign(S.ext, { source: d.source, feed: d.feed, custom: d.custom, name: d.name, type: d.type, specs: d.specs, decimals: d.decimals, tick: d.tick,
       exchange: d.exchange });
     renderRth();
     if (d.spec !== S.spec) { S.spec = specForced = d.spec; local.set('spec', d.spec); tabSync(); }   // the nearest the source has
     renderTf();
-    if (poll && S.bars.length) extMerge(d.bars);
+    if (poll && S.bars.length && !moved) extMerge(d.bars);
     else {
+      if (!d.bars?.length) throw new Error(`No ${sym} bars from ${d.source || 'the server'}`);   // the server says why instead (400)
+      if (!S.viewWant && S.loadedKey === viewKey()) S.viewWant = viewSnap();   // the same chart's bars again: its view stays
       applyPriceFormat();
       if (S.indFmt !== indFmt()) indsBuild();   // the indicators were made before the source's decimals came
       barsLayout();
@@ -2861,15 +2906,17 @@ async function extLoad(poll = false) {
       applyHistory({ kind: 'time', bars: d.bars });
     }
   } catch (e) {
-    if (id !== S.subId || sym !== S.symbol) return;
-    if (!poll) {
-      applyHistory({ kind: 'time', bars: [] });
-      $('#legend').textContent = `${sym} · ${e.message}`;
+    if (!mine()) return;
+    if (!poll) {   // no bars, and why: never the bars of what the chart showed before
+      if (S.bars.length) barsClear();
+      const again = e.status == null || e.status >= 500;   // no answer, or the server failed: asked again in a while
+      loadNote(again ? `${e.message}; trying again…` : e.message);
       toast(`${sym}: ${e.message}`);
+      if (again) extTimer = setTimeout(() => extLoad(), EXT_RETRY_MS);
       return;
     }
   }
-  if (id === S.subId && sym === S.symbol) extTimer = setTimeout(() => extLoad(true), extEvery());
+  if (mine()) extTimer = setTimeout(() => extLoad(true), extEvery());
 }
 function extMerge(bars) {   // a poll's answer: the last bar again, and any newer
   const last = S.bars.at(-1);
@@ -3753,9 +3800,11 @@ fpLayout();
 
 // ---- alerts ---------------------------------------------------------------------------------
 // timeout (ms): a request still unanswered then is given up (one on a dead connection can wait minutes for TCP).
-async function api(method, path, body, { timeout } = {}) {
-  const stop = timeout ? new AbortController() : null;
-  const timer = stop && setTimeout(() => stop.abort(new Error(`No answer from the server in ${timeout / 1000} s`)), timeout);
+async function api(method, path, body, { timeout, signal } = {}) {   // signal: the caller drops the request
+  const stop = timeout || signal ? new AbortController() : null;
+  const timer = timeout && setTimeout(() => stop.abort(new Error(`No answer from the server in ${timeout / 1000} s`)), timeout);
+  const drop = () => stop.abort(signal.reason);
+  signal?.addEventListener('abort', drop);
   try {
     const r = await fetch(path, { method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined, signal: stop?.signal });
     if (r.status === 401 && path !== '/api/auth/login') authCheck();   // signed out, or a request that crossed a login change
@@ -3766,6 +3815,7 @@ async function api(method, path, body, { timeout } = {}) {
     return r.status === 204 ? null : await r.json();
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener('abort', drop);
   }
 }
 const fail = (e) => toast(e.message);
@@ -4699,7 +4749,7 @@ async function replayLoad() {
     applyHistory({ kind: d.kind, bars: d.bars.slice(0, r.idx) });
     if (!r.idx) toast(d.bars.length ? 'No bars before that time: press ▶ or ⏭ to start at the first one' : 'No stored bars around that time on this chart');
   } catch (e) {
-    if (S.replay === r) fail(e);
+    if (S.replay === r) { fail(e); loadNote(e.message); }
   } finally {
     if (S.replay === r && req === r.req) { r.busy = false; replayUi(); }
   }
@@ -5385,7 +5435,7 @@ function send(m) { if (S.ws?.readyState === WebSocket.OPEN) S.ws.send(JSON.strin
 // A CME future not charted here yet (RTY, ZN...): opening it adds it on the server, live at once; NinjaTrader sends its
 // trades and its last 14 days. If that fails, it charts from free delayed data like any other symbol.
 async function futureAdd(sym) {
-  $('#legend').textContent = `${sym} · adding it: NinjaTrader sends its trades and last 14 days…`;
+  loadNote(`adding ${sym}: NinjaTrader sends its trades and last 14 days…`);
   try {
     S.instruments[sym] = await api('POST', '/api/instruments/add', { symbol: sym });
     delete S.catalog[sym];
@@ -5411,19 +5461,29 @@ function subscribe() {
   if (S.subId) send({ op: 'unsub', id: S.subId });
   S.subId += 1;
   clearTimeout(extTimer);
+  extStop?.abort();   // a free-data chart's answer on its way: not this chart's any more
   const fut = WL_FUT.exec(S.symbol);
-  if (isExtSym(S.symbol) && fut && S.catalog?.[fut[1]] && !futureAdd.failed.has(fut[1])) { futureAdd(fut[1]); return; }
+  if (isExtSym(S.symbol) && fut && S.catalog?.[fut[1]] && !futureAdd.failed.has(fut[1])) {
+    if (S.bars.length && S.loadedSym !== S.symbol) barsClear();
+    futureAdd(fut[1]);
+    return;
+  }
   const ext = isExtSym(S.symbol);   // no live feed here: Yahoo or FRED history
   S.ext = !ext ? null : S.ext?.symbol === S.symbol ? S.ext : { symbol: S.symbol };
   if (ext) {
     const sp = extSpecFor(S.spec, extSource(S.symbol));
     if (sp !== S.spec) { S.spec = specForced = sp; local.set('spec', sp); }
+    delete S.ext.source; delete S.ext.feed;   // until its answer says which source has it (the legend says loading)
   }
+  // Never another symbol's bars and last price under this one's name (the header's change is of this symbol's close)
+  // while its bars are on their way; a free-data chart's answer can take a while, so not another timeframe's or
+  // session's either. A live chart keeps its own bars until the other timeframe comes, at once.
+  if (S.bars.length && (S.loadedSym !== S.symbol || (ext && S.loadedKey !== viewKey()))) barsClear();
   renderTf();
   renderStudiesMenu();
   $('#replay-btn').disabled = ext;
   if (!ext) { vol.applyOptions({ visible: S.cs.volume }); barsLayout(); }   // back from a FRED line
-  $('#legend').textContent = `${S.symbol} ${specLabel(S.spec)} · loading…`;
+  loadNote('loading…', `Loading ${S.symbol} ${specLabel(S.spec)}…`);
   watermarkLayout();
   if (ext) extLoad();
   else if (S.replay) replayLoad();
@@ -5552,7 +5612,7 @@ function onMessage(m) {
     case 'trades': onTrades(m); break;
     case 'fill': onFill(m); break;
     case 'error':
-      if (m.op === 'sub' && m.id === S.subId) splashSay(`The chart didn't load: ${m.message}`, true);
+      if (m.op === 'sub' && m.id === S.subId) { splashSay(`The chart didn't load: ${m.message}`, true); loadNote(m.message); }
       toast(m.message);
       break;
   }

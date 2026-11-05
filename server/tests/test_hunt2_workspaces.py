@@ -135,7 +135,7 @@ def test_a_chart_says_when_its_data_source_forced_its_timeframe():
 const posted = [], noop = () => {}, el = { textContent: '', disabled: false };
 for (const f of ['send', 'renderTf', 'renderStudiesMenu', 'barsLayout', 'watermarkLayout', 'replayLoad', 'tapeSymbol', 'amtRequest',
   'tpoRequest', 'vpAll', 'gapRequest', 'amtLayout', 'ifRequest', 'renderPlanIf', 'renderRth', 'tabSync', 'applyPriceFormat',
-  'indsBuild', 'renderSymBtn', 'applyHistory', 'extMerge']) ctx[f] = noop;
+  'indsBuild', 'renderSymBtn', 'applyHistory', 'extMerge', 'loadNote', 'barsClear', 'toast']) ctx[f] = noop;
 let answer = new Promise(noop);   // subscribe()'s bars request: not answered in that part
 Object.assign(ctx, {
   S: { symbol: 'AAPL', spec: '2000t', subId: 0, catalog: {}, cs: {}, vp: {}, st: {}, bars: [], layers: [], stHidden: {}, indCfg: [] },
@@ -145,6 +145,7 @@ Object.assign(ctx, {
   local: { set: noop }, api: () => answer, indFmt: () => '', extSeries: () => false, extEvery: () => 1e9,
   chartSym: (s) => s, tabSet: () => ({}), setWhere: () => '', clearTimeout: noop, setTimeout: () => 0,
   window: { parent: { postMessage: (m) => posted.push([m.spec, m.forced]) } }, location: { origin: 'http://x' },
+  extStop: null, EXT_WAIT_MS: 60e3, EXT_RETRY_MS: 15e3, AbortController, viewKey: () => '', viewSnap: () => null,
 });
 vm.runInContext(/*APP*/ + ';this.subscribe = subscribe; this.extLoad = extLoad; this.cellPost = cellPost;', ctx);
 ctx.subscribe();   // AAPL has no tick bars: 5m

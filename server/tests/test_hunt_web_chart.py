@@ -401,7 +401,8 @@ const S = { symbol: 'EURUSD=X', spec: '5m', subId: 1, rth: false, instruments: {
 const chart = { removeSeries() {} }, IND_COLORS = { atr: ['#fff'] }, vol = { applyOptions() {} }, local = { set() {} };
 const makeInd = (c) => { made.push(inst().decimals); return { plots: [] }; };
 const [cotRequest, indsUpdate, priceOnlyLayout, layerSeries, renderRth, tabSync, renderTf, extMerge, applyPriceFormat, barsLayout,
-  renderSymBtn, applyHistory] = Array(12).fill(() => {});
+  renderSymBtn, applyHistory, loadNote, barsClear] = Array(14).fill(() => {});
+const EXT_WAIT_MS = 60e3, EXT_RETRY_MS = 15e3, viewKey = () => '', viewSnap = () => null;
 const toast = (t) => toasts.push(t);
 const extSeries = () => false, extEvery = () => 1e9, $ = () => ({});
 const api = async () => ({ source: 'yahoo', name: 'EUR/USD', decimals: 5, tick: 0.00001, spec: '5m', bars: [{ t: 1, o: 1.08, h: 1.08, l: 1.08, c: 1.08 }] });

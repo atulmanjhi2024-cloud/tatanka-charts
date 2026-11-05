@@ -173,6 +173,10 @@ post-market trades stay off its bars.
    yields US05Y, US10Y, US30Y, from Cboe's FVX, TNX, TYX: Cboe Streaming Market Indexes; Cboe's are ten times the
    yield, TNX 42.5 for 4.25%, so IBKR's quotes and bars of them, and of IRX, are divided by 10: in percent, as
    Yahoo's ^TNX); without one it says nothing and the next source charts it, IBKR asked again 10 minutes later.
+   A chart asks IBKR for about 2000 of its bars, which it sends in seconds (a 1h chart: about 7 months back; a stock's
+   4h with ETH, from hourly bars from 4:00: about 6); a longer span (a year of hourly bars) can take TWS over 25 s.
+   IBKR is waited for 10 s at most: when its history doesn't come, the next source charts it and that chart's
+   requests go there for 5 minutes, then IBKR is asked again.
    Legend: **IBKR real time** (**IBKR delayed** with `IBKR_MARKET_DATA_TYPE=3`). New bars every 15 s.
 2. **Alpaca** (US stocks and ETFs, intraday, its free keys set; Connections > Alpaca): history is the consolidated
    tape (every exchange's trades and volume) up to 15 minutes ago, which the free plan allows; the last 15 minutes
@@ -183,6 +187,13 @@ post-market trades stay off its bars.
    1m) reaches back 7 days, a 10m one (from 5m) 60 days, a 2h one (from 1h) 2 years. A US stock's 1h and longer hours
    with ETH come from 30 minutes (its hourly bars with the pre-market don't meet 4:00), so 60 days. New bars every
    30 s (2 min on daily bars). Legend: **delayed**.
+- **While a chart loads** (a tab, a symbol from the watchlist or the search, a layout's chart, and on a free-data
+  chart another timeframe or ETH/RTH too) the bars it showed before go at once: the legend and the chart say
+  **Loading…** and the header shows no price, never the last symbol's bars or price under the new name. Each source is
+  waited for a limited time (IBKR 10 s, Alpaca 15 s, Yahoo 20 s), so an answer comes within 60 s even when one
+  hangs. With none, the chart says why, source by source ("No QQQ bars from IBKR (no answer in 10 s), Alpaca (no
+  bars) or Yahoo: …"); a timeout or server error is asked again 15 s later. A poll answered by another source (IBKR
+  too slow, or back) loads that source's bars in full, and the legend names it.
 - **FRED series** (`FRED:DGS10`, `FRED:CPIAUCSL`, `FRED:UNRATE`, `FRED:T10Y2Y`, `FRED:WALCL`, …): a line, in 1D, 1W
   and 1M, from FRED's public CSV; no key needed. Kept in the database, asked again every few hours.
 - Your own indicators (EMA, RSI, MACD, …), drawings and chart settings work on them. The Tatanka studies, VWAP,

@@ -68,6 +68,11 @@ BAR_SIZES = {1: "1 min", 2: "2 mins", 3: "3 mins", 5: "5 mins", 10: "10 mins", 1
 CAL_SIZES = {"D": "1 day", "W": "1 week", "M": "1 month"}
 SHOW = {"CASH": "MIDPOINT", "CRYPTO": "AGGTRADES"}
 HISTORY_TIMEOUT_S = 25
+# How many of IBKR's own bars one chart's history asks for at most. IBKR's step sizes are a few thousand bars a request
+# (its table: 30-minute and hourly bars over at most 1 M, a 1 Y duration for daily bars and longer); past that TWS
+# fetches in pieces and is slow: a stock's 4h chart with ETH, from hourly bars over 1 Y (about 4000 of 16 hours a
+# day), took over 25 s and timed out. About 2000 answers in seconds.
+HISTORY_BARS = 2000
 # TWS's answers to a market data request that ends it: the account's lines all taken (101), no such contract (200),
 # no market data subscription for it (354, 10089, 10168)
 REFUSED = {101, 200, 354, 10089, 10168}
@@ -80,8 +85,9 @@ def base_minutes(minutes: int, anchor: int) -> int:
 
 
 def duration(minutes: int, base: int, day_minutes: int, weekdays: bool = True) -> str:
-    """How far back to ask: about 3000 of the chart's bars, at most about 8000 of IBKR's."""
-    days = math.ceil(min(3000 * minutes, 8000 * base) / day_minutes * (7 / 5 if weekdays else 1))
+    """How far back to ask: about 3000 of the chart's bars, at most about HISTORY_BARS of IBKR's (a stock's 4h chart
+    with ETH: 1-hour bars over 25 W, not 1 Y)."""
+    days = math.ceil(min(3000 * minutes, HISTORY_BARS * base) / day_minutes * (7 / 5 if weekdays else 1))
     if days <= 30:
         return f"{max(1, days)} D"
     if days <= 364:
@@ -218,11 +224,14 @@ class IBKRQuotes:
         self.contracts[key] = c
         return c
 
-    async def history(self, key: str, size: str, span: str, rth: bool = True) -> dict | None:
+    async def history(self, key: str, size: str, span: str, rth: bool = True,
+                      timeout: float = HISTORY_TIMEOUT_S) -> dict | None:
         """A chart's bars from IBKR's historical data: {"kind" (secType), "name", "tick" (its minimum tick), "rows":
         [(date for daily and longer, else a UTC datetime, o, h, l, c, v)]}, `size` bars (BAR_SIZES, CAL_SIZES) over
         `span` back from now; rth: a stock's or index's regular hours only. None when IBKR is not connected or has no
-        such contract; no rows without its market data subscription (IBKR answers with an error, logged)."""
+        such contract; no rows without its market data subscription (IBKR answers with an error, logged). Not answered
+        in `timeout` seconds: no rows and "timeout" True (ib_async cancels the request, and TWS may log Error 366 for
+        the cancel of a query it no longer holds: harmless)."""
         ib = self.ib
         if ib is None or not ib.isConnected():
             return None
@@ -230,15 +239,19 @@ class IBKRQuotes:
         if d is None:
             return None
         c = d.contract
+        t0 = time.monotonic()
         try:
             got = await ib.reqHistoricalDataAsync(c, "", span, size, SHOW.get(c.secType, "TRADES"),
                                                   bool(rth) and c.secType in ("STK", "IND"), formatDate=2,
-                                                  timeout=HISTORY_TIMEOUT_S)
+                                                  timeout=timeout)
         except Exception as e:   # noqa: BLE001  a request error or a dropped connection: the next source
             log.info("IBKR history for %s not read (%s)", key, type(e).__name__)
             return None
         rows = [(b.date, *(per_cent(key, x) for x in (b.open, b.high, b.low, b.close)), b.volume) for b in got or []]
-        return {"kind": c.secType, "name": d.longName or "", "tick": per_cent(key, d.minTick or 0), "rows": rows}
+        out = {"kind": c.secType, "name": d.longName or "", "tick": per_cent(key, d.minTick or 0), "rows": rows}
+        if not rows and time.monotonic() - t0 >= timeout * 0.95:   # ib_async's timeout: it answers with no bars
+            out["timeout"] = True
+        return out
 
     async def _details(self, ib, key: str):
         """The contract details a quote key's history comes from (a future's continuous contract), once per connection."""

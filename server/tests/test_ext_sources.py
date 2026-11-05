@@ -40,8 +40,10 @@ def test_specs_and_bases():
     # IBKR: 30-minute bars under a stock's hours (its hourly ones start on the hour, the open at 9:30)
     assert ibkr.base_minutes(60, 570) == 30 and ibkr.base_minutes(240, 1020) == 60 and ibkr.base_minutes(7, 570) == 1
     assert ibkr.base_minutes(45, 570) == 15 and ibkr.base_minutes(20, 570) == 10
-    assert ibkr.duration(1, 1, 390) == "11 D" and ibkr.duration(5, 5, 390) == "8 W" and ibkr.duration(60, 30, 390) == "1 Y"
-    assert ibkr.duration(240, 30, 390) == "2 Y" and ibkr.duration(1, 1, 1440, weekdays=False) == "3 D"
+    # about 3000 of the chart's bars, at most HISTORY_BARS (2000) of IBKR's: what it answers in seconds
+    assert ibkr.duration(1, 1, 390) == "8 D" and ibkr.duration(5, 5, 390) == "6 W" and ibkr.duration(60, 30, 390) == "31 W"
+    assert ibkr.duration(240, 30, 390) == "31 W" and ibkr.duration(1, 1, 1440, weekdays=False) == "2 D"
+    assert ibkr.duration(240, 60, 960) == "25 W"   # a stock's 4h with ETH: hourly bars from 4:00, not over 1 Y
     assert ext._decimals(0.01) == 2 and ext._decimals(0.00005) == 5 and ext._decimals(0.25) == 2 and ext._decimals(0) is None
 
 
@@ -113,7 +115,7 @@ class FakeIB:
     def connected(self):
         return self.up
 
-    async def history(self, key, size, span, rth=True):
+    async def history(self, key, size, span, rth=True, timeout=ibkr.HISTORY_TIMEOUT_S):
         self.asked.append((key, size, span, rth))
         return self.answer(key, size, span)
 
@@ -128,7 +130,7 @@ def test_ibkr_first_then_yahoo(tmp_path, monkeypatch):
 
     def ib_answer(key, size, span):
         if key == "AAPL":
-            return {"kind": "STK", "name": "APPLE INC", "tick": 0.01, "rows": rows if span.endswith("Y") else rows[-1:]}
+            return {"kind": "STK", "name": "APPLE INC", "tick": 0.01, "rows": rows if span.endswith("W") else rows[-1:]}
         if key == "ZN1!" and size == "1 day":
             return {"kind": "CONTFUT", "name": "10-Year T-Note", "tick": 0.015625, "rows": [(date(2026, 10, 20), 112, 113, 111, 112.5, 9)]}
         return {"kind": "STK", "name": "", "tick": 0.01, "rows": []}   # no market data subscription
@@ -142,7 +144,7 @@ def test_ibkr_first_then_yahoo(tmp_path, monkeypatch):
     async def go():
         d = await m.ext.bars("AAPL", "1h")
         assert (d["source"], d["feed"], d["spec"], d["decimals"], d["name"]) == ("ibkr", "live", "1h", 2, "APPLE INC")
-        assert fake.asked[-1] == ("AAPL", "30 mins", "1 Y", True)   # 30-minute bars: the hour counts from 9:30
+        assert fake.asked[-1] == ("AAPL", "30 mins", "31 W", True)   # 30-minute bars: the hour counts from 9:30
         assert [(b["t"], b["o"], b["c"], b["v"]) for b in d["bars"]] == [(start, 10, 11.5, 200), (start + 3_600_000, 12, 13.5, 200)]
         assert d["exchange"] == ext.US_STOCK and not calls
         await m.ext.bars("AAPL", "1h")

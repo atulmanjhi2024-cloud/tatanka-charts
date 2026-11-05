@@ -80,7 +80,7 @@ def test_ibkr_index_with_eth_counts_from_its_open(tmp_path, monkeypatch):
     async def go():
         for rth in (True, False):
             d = await m.ext.bars("SPX", "1h", rth)
-            assert d["source"] == "ibkr" and fake.asked[-1][1:] == ("30 mins", "1 Y", True)
+            assert d["source"] == "ibkr" and fake.asked[-1][1:] == ("30 mins", "31 W", True)
             assert hm(d) == ["09:30", "10:30", "11:30", "12:30", "13:30", "14:30", "15:30"]
             assert hm(await m.ext.bars("SPX", "2h", rth)) == ["09:30", "11:30", "13:30", "15:30"]
     asyncio.run(go())
@@ -197,7 +197,7 @@ const NY = { tz: 'America/New_York', rth: ['09:30', '16:00'], day: '00:00' };
 const S = { ext: { exchange: NY }, spec: '1D', seqTime: new Map(), fp: { clear() {} }, dsmaLive: { clear() {} }, viewWant: null };
 const noop = () => {}, series = { setData: noop }, ax = { pick: '' };
 const [cmpClear, altSetData, fpSchedule, setStudyData, indsUpdate, hemaDraw, hemaRequest, dsmaDraw, dsmaRequest, renderIfInfo,
-  scheduleRange, priceLineLayout, bigSchedule, fillsSchedule, goToTime, setChartZone, cmpLoad, legend, header] = Array(19).fill(noop);
+  scheduleRange, priceLineLayout, bigSchedule, fillsSchedule, goToTime, setChartZone, cmpLoad, legend, loadNote, header] = Array(20).fill(noop);
 const $ = () => ({ classList: { add: noop } }), toPoints = () => [{}, {}], vol = series, candles = series, inst = () => ({});
 const bigOn = () => false, viewKey = () => '', viewApply = () => true;
 /*APP*/

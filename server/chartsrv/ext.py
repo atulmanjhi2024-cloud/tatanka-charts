@@ -8,7 +8,13 @@ short while, so a chart polling for its last bar costs a source little.
 
 Each answer names its exchange's clock: {tz, rth ["HH:MM", "HH:MM"] or None, day ("HH:MM": when its trading day
 starts)}. US stocks: New York, 09:30-16:00, the day from midnight; crypto: UTC around the clock; currencies: the
-17:00 New York roll; futures: CME's 17:00 Chicago open. ETH (rth=False) adds a stock's pre- and post-market."""
+17:00 New York roll; futures: CME's 17:00 Chicago open. ETH (rth=False) adds a stock's pre- and post-market.
+
+Each source is waited for a bounded time (IB_WAIT_S, ALPACA_WAIT_S, YAHOO_WAIT_S), so the answer, from whichever source
+has the bars, comes within ANSWER_S, under the chart page's own limit (app.js EXT_WAIT_MS). An IBKR request that
+times out sends that chart (its symbol and bar size) to the next source for IB_SLOW_S, so it is not waited for again
+on every poll."""
+import asyncio
 import logging
 import math
 import re
@@ -48,6 +54,12 @@ IB_REFRESH = {"D": "1 M", "W": "3 M", "M": "1 Y"}           # a poll asks only f
 IB_KEEP_S = (10, 60)        # an IBKR answer is kept this long (intraday, daily and longer)
 IB_FULL_S = 30 * 60         # and its history asked again in full this often; polls in between ask for the latest only
 IB_NONE_S = 10 * 60         # IBKR had no bars for a chart (no subscription, no contract): the next source this long
+IB_WAIT_S = 10              # a chart waits this long for IBKR's history (ibkr.HISTORY_BARS answer in seconds) ...
+IB_SLOW_S = 5 * 60          # ... and when it didn't come, the chart's next requests go to the next source this long
+IB_GRACE_S = 5              # beyond IB_WAIT_S: the contract's details, asked once per connection
+ALPACA_WAIT_S = 15          # Alpaca's pages of bars, all of them
+YAHOO_WAIT_S = 20           # Yahoo's chart answer
+ANSWER_S = IB_WAIT_S + IB_GRACE_S + ALPACA_WAIT_S + YAHOO_WAIT_S   # the longest a chart's answer takes, every source slow
 MAX_BARS = 10_000
 CACHE_MAX = 300
 STALE_S = 10 * 60           # an expired answer is kept this much longer: what a failed request falls back on
@@ -195,6 +207,12 @@ def _decimals(tick: float) -> int | None:
     return len(f"{tick:.10f}".rstrip("0").split(".")[1])
 
 
+def no_bars(sym: str, why: list[tuple[str, str]], last: str) -> str:
+    """Why a chart has no bars: each source tried before the last and what it said, then the last one's error ("No
+    QQQ bars from IBKR (no answer in 10 s), Alpaca (no bars) or Yahoo: Yahoo did not answer (ConnectError)")."""
+    return f"No {sym} bars from {', '.join(f'{s} ({r})' for s, r in why)} or {last}"
+
+
 def chart_symbol(sym: str, instruments: dict, only=wl.ONLY_FUTURES) -> str:
     """The symbol as this chart takes it, or ValueError: one plain symbol (no formula), not a live chart's. only: the
     roots a bare one is written as the future of (6E: 6E1!), the symbol database's only_futures."""
@@ -230,11 +248,11 @@ class ExtBars:
 
     async def bars(self, sym: str, spec: str, rth: bool = True) -> dict:
         """{symbol, spec, source, feed, name, type, decimals, tick, specs, custom (any minute or hour timeframe up to
-        a day, N days, weeks or months), exchange (its clock), bars}; ValueError when there are none. rth=False:
-        intraday bars with the pre- and post-market where the source has them."""
+        a day, N days, weeks or months), exchange (its clock), bars}; ValueError when there are none, saying what each
+        source tried said. rth=False: intraday bars with the pre- and post-market where the source has them."""
         info = self.m.symbols.info(sym) or {}
         series = source_of(self.m, sym)
-        feed = ""
+        feed, why = "", []
         if series:
             data, sid, src = series
             if spec not in FRED_SPECS:
@@ -247,21 +265,26 @@ class ExtBars:
             watch = getattr(self.m, "watch_chart", None)
             if watch:
                 watch(wl.quote_key(sym))   # quoted while charted: the live quote moves the last bar
-            if (got := await self._ibkr(sym, spec, rth)) is not None:
+            if (got := await self._ibkr(sym, spec, rth, why)) is not None:
                 bars, feed, dec, name, exch = got
                 src, specs, name = "ibkr", tuple(YAHOO_SPECS), info.get("name") or name or sym
-            elif (got := await self._alpaca(sym, spec, rth)) is not None:
+            elif (got := await self._alpaca(sym, spec, rth, why)) is not None:
                 bars, feed = got
                 last = bars[-1]["c"] if bars else 1
                 dec, src, specs, name, exch = (2 if abs(last) >= 1 else 4), "alpaca", tuple(YAHOO_SPECS), info.get("name") or sym, US_STOCK
             else:
                 y = self.yahoo_ticker(sym)
                 if not y:
-                    raise ValueError(f"no free data for {sym}")
+                    raise ValueError(no_bars(sym, why, "Yahoo (no ticker for it)") if why else f"no free data for {sym}")
                 # only a US stock has a pre- and post-market (Yahoo's tickers elsewhere end in their exchange: 7203.T)
                 stock = info.get("type") in alpaca.STOCK_TYPES and "." not in y
                 base = yahoo_base(spec, not rth, stock)
-                bars, meta = await self._yahoo(y, base, not rth and base not in CALENDAR)
+                try:
+                    bars, meta = await self._yahoo(y, base, not rth and base not in CALENDAR)
+                except ValueError as e:
+                    if why:
+                        raise ValueError(no_bars(sym, why, f"Yahoo: {e}")) from None
+                    raise
                 exch = exchange_of(meta)
                 if base != spec:
                     bars = regroup(bars, spec, exch, rth or not stock)
@@ -271,7 +294,7 @@ class ExtBars:
                     dec = 2 if abs(last) >= 1 else 4
                 src, specs, name = "yahoo", tuple(YAHOO_SPECS), info.get("name") or meta.get("longName") or meta.get("shortName") or sym
         if not bars:
-            raise ValueError(f"no data for {sym}")
+            raise ValueError(no_bars(sym, why, "Yahoo: no bars") if why else f"no data for {sym}")
         for i, b in enumerate(bars):
             b["seq"] = i + 1
         dec = max(0, min(8, int(dec)))
@@ -279,15 +302,20 @@ class ExtBars:
                 "tick": round(10 ** -dec, dec), "specs": list(specs), "bars": bars, "feed": feed, "exchange": dict(exch),
                 "custom": not series}
 
-    async def _ibkr(self, sym: str, spec: str, rth: bool = True) -> tuple | None:
+    async def _ibkr(self, sym: str, spec: str, rth: bool = True, why: list | None = None) -> tuple | None:
         """(bars, feed "live" or "delayed", decimals, name, exchange clock) from IBKR when it is connected and has the
-        symbol's bars; None: the next source. A future only as XX1! (BZ1!), a stock never as one (BZ is a stock too),
-        as contract_for() reads the quote key. Polls ask only for the newest bars and join them on; the full history
-        is asked again every IB_FULL_S."""
+        symbol's bars; None: the next source (why it didn't chart it added to `why`). A future only as XX1! (BZ1!), a
+        stock never as one (BZ is a stock too), as contract_for() reads the quote key. Polls ask only for the newest
+        bars and join them on; the full history is asked again every IB_FULL_S. Waited for IB_WAIT_S at most: a
+        request that times out sends the chart to the next source for IB_SLOW_S (polls too: never 25 s a poll)."""
         feed = next((f for f in self.m.feed_objs if f.name == "ibkr" and hasattr(f, "history")), None)
         key = wl.quote_key(sym)
         cf = ibkr.contract_for(key)
-        if feed is None or cf is None or not feed.connected():
+        why = [] if why is None else why
+        if feed is None or cf is None:
+            return None
+        if not feed.connected():
+            why.append(("IBKR", "not connected"))
             return None
         kind, (n, unit) = cf["secType"], split_spec(spec)
         exch = IB_CLOCK.get(kind, US_STOCK)
@@ -303,6 +331,7 @@ class ExtBars:
         now, hit = time.monotonic(), self.cache.get(ck)
         if hit and hit[1].get("none"):
             if hit[0] > now:
+                why.append(("IBKR", hit[1].get("why") or "no bars"))
                 return None
             hit = None
         got = hit[1] if hit else None
@@ -311,7 +340,17 @@ class ExtBars:
             if fresh:   # the newest bars only, joined on
                 since = time.time() - got["bars"][-1]["t"] / 1000
                 span = IB_REFRESH[unit] if unit else f"{int(min(86_400, max(1800, since + 2 * b * 60)))} S"
-            res = await feed.history(key, size, span, not eth)
+            try:   # IB_GRACE_S more for a history() that doesn't keep its timeout (its contract's details first)
+                res = await asyncio.wait_for(feed.history(key, size, span, not eth, timeout=IB_WAIT_S), IB_WAIT_S + IB_GRACE_S)
+            except asyncio.TimeoutError:
+                res = {"rows": [], "timeout": True}
+            if res and res.get("timeout"):   # too slow for a chart: the next source, and the next while remembered
+                note = f"no answer in {IB_WAIT_S} s"
+                self._keep(ck, now + IB_SLOW_S, {"none": True, "why": note})
+                log.warning("IBKR sent no %s bars of %s over %s in %d s; %s %s from the next source for %d min",
+                            size, sym, span, IB_WAIT_S, sym, base + (" ETH" if eth else ""), IB_SLOW_S // 60)
+                why.append(("IBKR", note))
+                return None
             rows = self._ib_bars(res, unit) if res else []
             if fresh:
                 if rows:
@@ -323,6 +362,7 @@ class ExtBars:
             elif got is None:   # no subscription, no contract: the next source for a while
                 self._keep(ck, now + IB_NONE_S, {"none": True})
                 log.info("no IBKR bars for %s %s; the next source for %d min", sym, base, IB_NONE_S // 60)
+                why.append(("IBKR", "no bars"))
                 return None
             else:   # the full history didn't come again: the bars it has, and the newest only for a while
                 got = {**got, "full": now}
@@ -355,10 +395,12 @@ class ExtBars:
         return bool(s.alpaca_key_id and s.alpaca_secret and self.m.http is not None
                     and alpaca.is_stock(self.m, wl.quote_key(sym)))
 
-    async def _alpaca(self, sym: str, spec: str, rth: bool = True) -> tuple[list[dict], str] | None:
-        """Real-time intraday bars of a US stock or ETF from Alpaca, when its keys are set; None: use Yahoo."""
+    async def _alpaca(self, sym: str, spec: str, rth: bool = True, why: list | None = None) -> tuple[list[dict], str] | None:
+        """Real-time intraday bars of a US stock or ETF from Alpaca, when its keys are set; None: use Yahoo (why
+        added to `why`). Waited for ALPACA_WAIT_S at most."""
         s = self.m.s
         minutes = alpaca.spec_minutes(spec)
+        why = [] if why is None else why
         if minutes is None or not self._alpaca_can(sym):
             return None
         days = min(730, math.ceil(ALPACA_BARS * minutes / 390 * 7 / 5) + 4)
@@ -367,11 +409,18 @@ class ExtBars:
         if hit and hit[0] > time.monotonic():
             return [dict(b) for b in hit[1]["bars"]], hit[1]["feed"]
         try:
-            bars, feed = await self.alpaca.bars(s, wl.quote_key(sym), minutes, days, extended=not rth)
+            bars, feed = await asyncio.wait_for(self.alpaca.bars(s, wl.quote_key(sym), minutes, days, extended=not rth),
+                                                ALPACA_WAIT_S)
+        except asyncio.TimeoutError:
+            log.info("Alpaca sent no bars for %s in %d s; Yahoo instead", sym, ALPACA_WAIT_S)
+            why.append(("Alpaca", f"no answer in {ALPACA_WAIT_S} s"))
+            return None
         except (httpx.HTTPError, ValueError, PermissionError) as e:   # Yahoo then; never the request (headers hold keys)
             log.info("Alpaca bars for %s not read (%s); Yahoo instead", sym, type(e).__name__)
+            why.append(("Alpaca", "keys refused" if isinstance(e, PermissionError) else type(e).__name__))
             return None
         if not bars:
+            why.append(("Alpaca", "no bars"))
             return None
         bars = bars[-MAX_BARS:]
         self._keep(key, time.monotonic() + 5, {"bars": bars, "feed": feed})
@@ -386,13 +435,14 @@ class ExtBars:
         if self.m.http is None:
             raise ValueError("no network")
         try:
-            r = await self.m.http.get(YAHOO_CHART + ticker, params={"interval": interval, "range": rng, "includePrePost": "true" if prepost else "false"},
-                                      headers={"User-Agent": UA, "Accept": "application/json"}, timeout=20, follow_redirects=True)
+            r = await asyncio.wait_for(self.m.http.get(
+                YAHOO_CHART + ticker, params={"interval": interval, "range": rng, "includePrePost": "true" if prepost else "false"},
+                headers={"User-Agent": UA, "Accept": "application/json"}, timeout=20, follow_redirects=True), YAHOO_WAIT_S)
             if r.status_code == 404:
                 raise ValueError(f"Yahoo has no {ticker}")
             r.raise_for_status()
             bars, meta = parse_yahoo_chart(r.json(), spec)
-        except httpx.HTTPError as e:
+        except (httpx.HTTPError, asyncio.TimeoutError) as e:
             if hit:   # the last answer, stale, beats none
                 return [dict(b) for b in hit[1]["bars"]], hit[1]["meta"]
             raise ValueError(f"Yahoo did not answer ({type(e).__name__})") from None

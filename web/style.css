@@ -139,6 +139,8 @@ input::placeholder { color: var(--fg-dim); }
 #draw-paste label { display: inline-flex; gap: 4px; align-items: center; color: var(--fg-dim); }
 #draw-paste input[type=number] { width: 90px; }
 #draw-btn.on { border-color: var(--accent); color: var(--accent); }
+/* over an empty chart, below the watermark (the symbol in the middle): its bars loading, or why there are none */
+#chart-msg { position: absolute; left: 0; right: 0; top: 62%; z-index: 2; padding: 0 24px; text-align: center; line-height: 1.5; color: var(--fg-dim); font-size: 13px; pointer-events: none; }
 #amt-warn { position: absolute; z-index: 3; color: #ffc66b; font: 400 12px/1.33 "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, sans-serif; pointer-events: none; }
 .tf-group + .tf-group { margin-top: 8px; }
 .tf-group h5 { margin: 0 0 4px; font-size: 11px; font-weight: 600; color: var(--fg-dim); text-transform: uppercase; letter-spacing: .04em; }

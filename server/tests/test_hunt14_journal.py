@@ -37,7 +37,7 @@ const known = {
   $: (s) => (els[s] ||= { classList: { contains: (c) => s === '#tab-journal' && c === 'on', toggle() {}, add() {}, remove() {} },
     checked: s === '#jr-sym' ? ONLY : false, value: s === '#jr-range' ? '1' : '', textContent: '', style: {},
     replaceChildren() {}, querySelectorAll: () => [] }),
-  S: { symbol: 'ES', spec: '5m', st: {}, cs: {}, subId: 0, quotes: {}, instruments: {}, vp: {} },
+  S: { symbol: 'ES', spec: '5m', st: {}, cs: {}, subId: 0, quotes: {}, instruments: {}, vp: {}, bars: [] },
   local: { get: (k, d) => d, set() {} },
   asked: [], timers: [],
   api: (method, url) => { known.asked.push(url.split('?')[0]); return new Promise(() => {}); },
