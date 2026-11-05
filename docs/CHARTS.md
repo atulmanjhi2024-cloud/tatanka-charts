@@ -119,8 +119,9 @@ Tabs are remembered per chart and saved in the workspace.
 - **Price tags** on the axis from drawn lines, alert lines and the studies (AAVP/PVP/session profile, AMT) stack
   instead of covering each other: tags that would overlap are spread evenly around their prices, in price order.
 - **Price axis** (corner under it, as TradingView's): **%** percent scale (from the first bar in view), **log**,
-  **auto** (fits the data on screen, keeping the last price at least about a fifth of the way in from the top and bottom
-  while the last bar is on screen), **🔒** lock price to bar ratio (zooming keeps the chart's proportions, so a 45°
+  **auto** (fits the data on screen; with the last bar on screen and price near the bars' low or high, it adds room
+  on that side so price sits about a fifth of the way in, and none once price is back toward the middle; the room
+  follows the bars' range, not each tick), **🔒** lock price to bar ratio (zooming keeps the chart's proportions, so a 45°
   move stays 45°). What is on shows blue. % and log are each other's opposite; dragging the price axis turns auto off,
   and a double-click (double-tap) on the axis or **auto** turns it back on; the lock needs a regular scale and turns
   auto off, and unlocking leaves the view where it is. % and log are kept per chart.

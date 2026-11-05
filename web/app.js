@@ -459,10 +459,14 @@ const chart = L.createChartEx($('#chart'), new ZoneTimeScale(), {
   localization: { dateFormat: "dd MMM 'yy", timeFormatter: axTime },
   crosshair: { mode: L.CrosshairMode.Normal },
 });
-// Auto scale keeps room around the last price: at least about a fifth of the pane above and below it while the last
-// bar is on screen (a third shortened the candles too much). The range grows only on the side price presses against (after a big drop, below it); scrolled back, the
-// bars fit as before. The scale's own margins count (20% above, 10% below by default); log scales work in log space.
+// Auto scale keeps room around the last price while the last bar is on screen: near the bars' low (after a big drop)
+// it adds room below them, near their high room above, enough for a price at the very edge to sit about a fifth of the
+// pane in (a third shortened the candles too much). Back toward the middle of the bars' range, no room is added. The
+// room is a share of the bars' range, not of the price, so the scale moves when their high or low does, as without it,
+// not on every tick; it turns on and off with a margin, so a price on the line doesn't flip it. Scrolled back, the bars
+// fit as before. The scale's own margins count (20% above, 10% below by default); log scales work in log space.
 const PRICE_ROOM = 0.22;
+let roomSide = 0;   // -1 room below the bars, 1 above, 0 none
 function roomAroundPrice(base) {
   const r = base(), n = S.bars?.length, last = n ? S.bars[n - 1].c : NaN;
   const vr = n ? chart.timeScale().getVisibleLogicalRange() : null;
@@ -472,10 +476,14 @@ function roomAroundPrice(base) {
   if (log && !(r.priceRange.minValue > 0 && last > 0)) return r;
   const f = log ? Math.log : (x) => x, back = log ? Math.exp : (x) => x;
   let lo = f(r.priceRange.minValue), hi = f(r.priceRange.maxValue);
-  const p = f(last), u = (PRICE_ROOM - mb) / band, v = (1 - PRICE_ROOM - mb) / band;   // where in the bars' band
-  if (!(band > 0 && hi > lo && p >= lo && p <= hi)) return r;
-  if (u > 0 && u < 1 && p - lo < u * (hi - lo)) lo = (p - u * hi) / (1 - u);          // low on the pane: room below
-  else if (v > 0 && v < 1 && p - lo > v * (hi - lo)) hi = lo + (p - lo) / v;          // high on it: room above
+  const span = hi - lo, q = (f(last) - lo) / span;   // where the last price is in the bars' range, 0 their low
+  if (!(band > 0 && span > 0 && q >= 0 && q <= 1)) return r;
+  if (q < 0.15) roomSide = -1;
+  else if (q > 0.85) roomSide = 1;
+  else if ((roomSide < 0 && q > 0.3) || (roomSide > 0 && q < 0.7)) roomSide = 0;
+  const u = (PRICE_ROOM - mb) / band, v = (1 - PRICE_ROOM - mb) / band;   // the edge price's place in the bars' band
+  if (roomSide < 0 && u > 0 && u < 1) lo -= span * u / (1 - u);
+  else if (roomSide > 0 && v > 0 && v < 1) hi += span * (1 / v - 1);
   else return r;
   return { ...r, priceRange: { minValue: back(lo), maxValue: back(hi) } };
 }
