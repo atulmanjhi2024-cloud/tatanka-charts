@@ -133,8 +133,7 @@ Tabs are remembered per chart and saved in the workspace.
   scroll or new bars come. A new symbol or timeframe fits itself again (auto on), so a fixed range from another market
   never leaves the chart empty.
 - **Time axis**: hover the chart for − + ‹ › ⟲ (zoom out/in around the latest bar, scroll, reset the view). **»**
-  appears when the latest bar is out of view and jumps back to it. Wheel and drag work as before. Bars zoom between
-  2.5 px apart (each candle keeps a body) and 50 px (160 with the footprint on, for its numbers).
+  appears when the latest bar is out of view and jumps back to it. Wheel and drag work as before.
 - **Price axis menu**: right-click the price axis for Auto, Lock price to bar ratio, Scale price chart only, and
   Regular / Percent / Logarithmic. The **mouse wheel over the price axis** scales the prices (auto goes off; a
   double-click on the axis brings it back).
