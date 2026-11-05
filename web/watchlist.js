@@ -13,6 +13,9 @@ const WL_FX = new Set(['USD', 'EUR', 'GBP', 'JPY', 'CHF', 'CAD', 'AUD', 'NZD', '
 const WL_ROOT_DEC = { NG: 3, SI: 3, HG: 4, SR3: 4, ZT: 4, ZF: 4, ZN: 4, ZB: 3, UB: 3, LE: 3, ZC: 2, ZS: 2, '6E': 5, '6B': 4, '6J': 7 };
 const WL_NUMBER = /^\d+(\.\d+)?$/;
 const WL_WAIT = { timeout: 15000 };   // a save of the lists, or a read of them, still unanswered then has failed (app.js api())
+// A row's price flashes again this long after its last flash at the soonest: a symbol ticking several times a second
+// (AAPL, NVDA, BTC on a fast day) restarted the 0.8 s fade on each tick, so the cell stayed lit and looked stuck.
+const WL_FLASH_GAP_MS = 900;
 const wlBare = (s) => s.replace(/\b(?!FRED:|EIA:|DATA:)[A-Za-z0-9_]+:/g, '').trim();   // "CME_MINI:ES1!" -> "ES1!"; FRED:, EIA:, DATA: stay
 const wlTokens = (s) => (wlBare(s).match(/(?:FRED:|EIA:|DATA:)?[A-Za-z0-9_.!&^=]+/g) || []).filter((t) => !WL_NUMBER.test(t));
 // A symbol as typed, written as the server does (watchlists._clean_item): in capitals, an exchange prefix and a FRED:,
@@ -290,10 +293,13 @@ function createWatchlist(env) {
     c.rt.className = `rt ${q.rt || ''}`;
     c.rt.title = rtText(q);
     const d = decimals(r.sym, q.last), dir = q.chg > 0 ? 'up' : q.chg < 0 ? 'down' : '';
-    if (r.last != null && q.last !== r.last) {   // flash the price the way it moved
+    const now = performance.now();
+    if (r.last != null && q.last !== r.last && !(now - r.flashed < WL_FLASH_GAP_MS)) {   // flash the price the way it moved
       // A new animation name restarts it (two of each, taken in turn) with no forced layout; it fades an overlay's
-      // opacity, which the compositor runs without repainting the row.
+      // opacity, which the compositor runs without repainting the row. Not again within WL_FLASH_GAP_MS: the fade
+      // shows between flashes, while the number and the change's color below follow every tick.
       r.fl = !r.fl;
+      r.flashed = now;
       c.last.classList.remove('fl-up', 'fl-dn', 'fl-up2', 'fl-dn2');
       c.last.classList.add(`${q.last > r.last ? 'fl-up' : 'fl-dn'}${r.fl ? '2' : ''}`);
     }

@@ -41,6 +41,7 @@ from .feeds import feed_names, make_feed
 from .feeds.eia import EiaData
 from .feeds.fred import FredData
 from .feeds.sdk import without_keys
+from .feeds.yahoo import CloseFill, market_day
 from .ind_alerts import IndicatorAlerts
 from .packages import Installer
 from .updates import Updates
@@ -245,6 +246,10 @@ class Market:
         self.quotes: dict[str, dict] = {}
         self.quotes_dirty: set[str] = set()
         self.quote_from: dict[str, tuple[str, int]] = {}   # symbol -> (source, when it last quoted)
+        # symbol -> (its trading day, the previous close its quotes are set against that day): any source's, or the
+        # fill's, for a quote that comes without one (not a future's: its settlement's)
+        self.closes: dict[str, tuple] = {}
+        self.close_fill = CloseFill(self)   # Yahoo's previous close of a stock no source gave one for
         self.alerts = AlertEngine(store, instruments, self.levels, self._on_alert)
         self.alerts.on_change = self._alert_expired
         self.study_sources = StudySources(self)
@@ -285,7 +290,8 @@ class Market:
         self.levels.poll()
         loops = [self._client_loop(), self._store_loop(), self._watchdog_loop(),
                  self._housekeeping_loop(), self.amt.loop(), self.daily.run(), self.symbols.run(),
-                 self.calendar.run(), self.earnings.run(), self.backups.run(), self._prewarm(), self.watch_plugins(), self.upkeep.run(), self.updates.run()]
+                 self.calendar.run(), self.earnings.run(), self.backups.run(), self._prewarm(), self.watch_plugins(), self.upkeep.run(), self.updates.run(),
+                 self.close_fill.run()]
         self.tasks = [asyncio.create_task(c) for c in loops]
         self.cleaning = asyncio.create_task(self._clean_up())   # in the background: the start never waits for it
         self.tasks.append(self.cleaning)
@@ -788,7 +794,8 @@ class Market:
         """A watchlist quote. NinjaTrader's (live futures) beat IBKR's, which beat Yahoo's (can lag); a lower source
         fills in when the better one has been silent for QUOTE_HOLD_MS. `at`: the quote's own time, if it has one.
         `symbol` is its quote key (wl.quote_key: "ZS1!" the future, "ZS" the stock); a chart future's root ("ES", as
-        the TCP lines and plugins name it) is its future's."""
+        the TCP lines and plugins name it) is its future's. A future's change is from its settlement; anything else's
+        from the quote's previous close, else the one known for its trading day (_close_for)."""
         if last is None or last != last:  # None or NaN
             return
         symbol = wl.quote_key(symbol, self.instruments)
@@ -799,19 +806,58 @@ class Market:
         prev = prev_close if prev_close is not None and prev_close == prev_close else None
         if prev == 0 and source not in ("fred", "eia", "data"):   # a series' 0 is a value (FRED:USREC); a price's is none
             prev = None
+        ts = min(at or now, now)
+        root = wl.future_root(symbol)
         try:   # a future: from its latest settlement until the next one; a stock never from its root's (ZS from ZS1!'s)
-            ref = self.settlements.reference(root, now) if (root := wl.future_root(symbol)) else None
+            ref = self.settlements.reference(root, now) if root else None
         except Exception as e:   # not saved (a full disk): the feed's previous close, and the feed carries on
             log.warning("%s settlement not worked out: %s", symbol, e)
             ref = None
         if ref:
             prev = ref["price"]
+        elif root is None and source not in ("fred", "eia", "data", "sim"):
+            prev = self._close_for(symbol, prev, ts)
         chg = last - prev if prev is not None else None   # pct of prev's size: from below 0 (NFCI), a rise is up
         vol = volume if volume is not None and volume == volume and volume >= 0 else None
         self.quotes[symbol] = {"s": symbol, "last": last, "prev": prev, "chg": chg,
-                               "pct": chg / abs(prev) * 100 if prev else None, "vol": vol, "ts": min(at or now, now), "src": source,
+                               "pct": chg / abs(prev) * 100 if prev else None, "vol": vol, "ts": ts, "src": source,
                                "rt": self._rt(source, at, now), **({"settle_t": ref["t"]} if ref else {})}
         self.quotes_dirty.add(symbol)
+
+    def _close_for(self, symbol: str, prev: float | None, ts: int) -> float | None:
+        """The previous close a stock's, ETF's, index's, currency pair's or crypto's quote at `ts` is set against: its
+        own, kept for its trading day (yahoo.market_day: a stock's from midnight New York); without one (IBKR sends
+        none for some tickers), the one known for that day, from an earlier quote of any source or the fill
+        (close_hint). Never one of another day: a stock's previous close changes with its next session. With none
+        known, a stock's is asked of Yahoo (CloseFill), once that day, and the quote goes out without it meanwhile."""
+        day = market_day(symbol, ts)
+        if prev is not None:
+            self.closes[symbol] = (day, prev)
+            return prev
+        known = self.closes.get(symbol)
+        if known and known[0] == day:
+            return known[1]
+        self.close_fill.want(symbol, day, ts)
+        return None
+
+    def close_hint(self, symbol: str, day, prev: float) -> bool:
+        """A previous close from elsewhere (CloseFill: Yahoo's daily bars) for `symbol`'s trading day `day`: kept as
+        its quotes' reference that day, unless a source gave one meanwhile (or a later day's is known). The quote shown
+        now, if it has none and is of that day, gets its change at once; its price, source and time stay. True if
+        kept."""
+        if not isinstance(prev, (int, float)) or prev != prev or prev == 0 or wl.future_root(symbol):
+            return False
+        known = self.closes.get(symbol)
+        if known and known[0] >= day:
+            return False
+        self.closes[symbol] = (day, float(prev))
+        q = self.quotes.get(symbol)
+        if q and q.get("prev") is None and q.get("src") not in ("fred", "eia", "data", "sim") \
+                and market_day(symbol, q["ts"]) == day:
+            chg = q["last"] - prev
+            self.quotes[symbol] = {**q, "prev": float(prev), "chg": chg, "pct": chg / abs(prev) * 100}
+            self.quotes_dirty.add(symbol)
+        return True
 
     def _rt(self, source: str, at: int | None, now: int) -> str:
         """How current a quote is, for the watchlist's marker: live, delayed, closed (its last trade is over an hour
@@ -900,6 +946,8 @@ class Market:
             del self.quotes[k]
             self.quote_from.pop(k, None)
             self.quotes_dirty.discard(k)
+        for k in [k for k in self.closes if k not in keys]:
+            del self.closes[k]
         return keys
 
     def watch_chart(self, key: str):
@@ -1368,4 +1416,5 @@ class Market:
             "levels": {s: ls.created or ls.date for s in self.instruments if (ls := self.levels.get(s))},
             "amt": self.amt.health(),
             "gaps": self.gaps.health(),
+            "close_fill": {**self.close_fill.stats, "waiting": len(self.close_fill.queue)},
         }

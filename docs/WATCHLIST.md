@@ -44,7 +44,9 @@ order, with the symbols the other added or removed, each in its own section.
   open; the 52-week range; performance over 1W, 1M, 3M, YTD and 1Y (Yahoo's daily bars); for a live future its
   contract and how it rolls; for a stock its next earnings; the flag.
   Opening, alerts and removing are a click, a right-click and Del away. Click its header to fold it.
-- Prices flash green or red as they tick. Columns: **⋯** shows or hides Chg, Chg% and Vol.
+- Prices flash green or red as they tick, at most about once a second each: on a symbol that ticks several times a
+  second the flash fades between them (the price and the change follow every tick). Columns: **⋯** shows or hides
+  Chg, Chg% and Vol.
 - API: `GET /api/watchlists` gives `{lists, flags, names, version}` (each save's version is higher, across restarts
   and restores too); `PUT /api/watchlists` takes the whole document and `base`, the version it was edited on: a save
   since (another device's) makes it a 409, nothing saved: read the lists again and make the edit there. Without
@@ -70,6 +72,15 @@ Quotes, best source first (Details shows which one a quote came from):
    **—**, FTUK1! the FTSE 100 index and HSI1! the Hang Seng index; `config/yahoo.json` maps any symbol to a Yahoo ticker
    you choose (a future as `FDAX1!`, or by its root, `FDAX`, as before). Yahoo's free endpoints are unofficial and
    can change; `/api/health` shows its last error.
+
+**A stock's, ETF's or index's change is from its previous close**, the quoting source's, for the quote's trading day:
+a US stock's runs from midnight New York (its pre-market, session and after-hours are one day), so yesterday's
+reference is never carried into today's. IBKR sends no previous close for some tickers (a price and no Chg); such a
+quote takes the one another source gave for that day (Yahoo or Alpaca before IBKR took the symbol over), else the
+server asks Yahoo's daily bars for it (the close before the quote's day), once per symbol a day, up to 20 symbols a
+request, in the background, whether or not Yahoo's quotes are on; the price stays the source's. A currency pair or
+crypto (days from the 17:00 New York roll and 00:00 UTC) takes one another source gave that day, and is not asked.
+`/api/health` shows `close_fill` (asked, filled, errors).
 **A future's change is from its latest settlement**, as its exchange sets it, counted from the market's next open
 (CME's 17:00 CT Globex open; Friday's from Sunday's), as TradingView: after the 15:00 settlement ES still shows the
 day's change until 17:00, then the new session's. Each market's settlement window is in

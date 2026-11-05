@@ -130,12 +130,12 @@ function makeServer(items = []) {
 
 // web/watchlist.js's createWatchlist() over elements that take anything; quotes as the server sends them. env: the
 // app's functions to use instead of the do-nothing ones (api, ask, menu...). win: its window listeners (a drag's).
-// timers (makeTimers): its timers, run by hand; without, none runs.
-function makeWatchlist(web, { quotes = {}, current = 'ES', env = {}, timers = null } = {}) {
+// timers (makeTimers): its timers, run by hand; without, none runs. now: its performance.now() (a price flash's clock).
+function makeWatchlist(web, { quotes = {}, current = 'ES', env = {}, timers = null, now = () => performance.now() } = {}) {
   let menuPress = null;
   const win = {};
   const ctx = {
-    console, navigator: {},
+    console, navigator: {}, performance: { now },
     document: { createElement: (t) => el(t) },
     window: { addEventListener(t, f) { (win[t] ||= []).push(f); } },
     matchMedia: () => ({ matches: false }),
