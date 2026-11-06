@@ -431,7 +431,7 @@ class Importer:
                            [(b[6], b[7], sym, b[0], b[5]) for b in bars if b[6] or b[7]])
             split = db.total_changes - before
             if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='vp_cache'").fetchone():
-                db.execute("DELETE FROM vp_cache WHERE key LIKE ? OR key LIKE ?", (f"svp2|{sym}|%", f"amtpd|{sym}|%"))   # session profiles, AMT prior days: built again
+                db.execute("DELETE FROM vp_cache WHERE key LIKE ? OR key LIKE ?", (f"svp2|{sym}|%", f"amtpd%|{sym}|%"))   # session profiles, AMT prior days: built again
         tot["ticks"] += 0 if self.bars_only else len(ts)
         tot["bars"] += new_bars
         tot["split"] += split

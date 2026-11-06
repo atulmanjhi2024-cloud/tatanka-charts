@@ -92,7 +92,7 @@ def import_file(store: Store, symbol: str, path: Path, tz: ZoneInfo, tick: float
     db = store.db
     if inserted and db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='vp_cache'").fetchone():
         with db:
-            db.execute("DELETE FROM vp_cache WHERE key LIKE ? OR key LIKE ?", (f"svp2|{symbol}|%", f"amtpd|{symbol}|%"))   # session profiles, AMT prior days: built again
+            db.execute("DELETE FROM vp_cache WHERE key LIKE ? OR key LIKE ?", (f"svp2|{symbol}|%", f"amtpd%|{symbol}|%"))   # session profiles, AMT prior days: built again
     usable = stats["read"] - stats["skipped_shift"]
     return {**stats, "inserted": inserted, "existing": usable - inserted}
 

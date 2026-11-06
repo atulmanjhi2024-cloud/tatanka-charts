@@ -71,6 +71,9 @@ class _Window:
         self.count = 0
         self.t0 = time.monotonic()
         self.answered = False                      # done() with its history stored: no error, nor "none" (none to give)
+        self.collect: dict | None = None           # the AMT's prior day (ask_value): price -> volume, nothing stored
+        self.future = None
+        self.bars = False                          # ...answered with 1-minute bars: no tick history
 
 
 def shut(ts: int, group: str | None) -> bool:
@@ -89,6 +92,7 @@ class GapFill:
         self.queue: dict[str, list[tuple[int, int]]] = {}   # holes still to ask for, per symbol
         self.changed: set[str] = set()   # filled, its charts not reloaded yet (once its holes are done)
         self.minutes_ok = False          # the add-on takes GAP|...|minutes (7+): what trades left out comes as minutes
+        self.values: dict[str, list] = {}   # per symbol: RTH sessions the AMT wants from NinjaTrader's tick history
         self.contracts_ok = False        # the add-on answers a stretch across rolls from each contract in turn (8+)
 
     def last_stored(self, sym: str) -> int | None:
@@ -111,6 +115,7 @@ class GapFill:
         up to its first live trade once its data connection is up, and answers holes (add-on 6+)."""
         self.m.flush_for_read()
         self.minutes_ok, self.contracts_ok = minutes, contracts
+        self.fail_values()   # asked on the connection before: no answer comes now
         owned = getattr(self.m, "trade_owner", {})
         out = []
         for sym in self.m.instruments:
@@ -199,11 +204,44 @@ class GapFill:
             return None
         if not self.queue.get(sym):
             self.settle(sym)
-            return None
+            return self._next_value(sym)
         item = self.queue[sym].pop(0)   # (start, end[, probe[, minutes[, stale]]])
         span = self.open_hole(sym, item[0], item[1], item[2] if len(item) > 2 else True)
         self.windows[sym].stale = len(item) > 4 and item[4]   # the rest of a stretch that holds alerts: they wait for it
         return f"GAP|{sym}|{span[0]}|{span[1]}" + ("|minutes" if len(item) > 3 and item[3] else "")
+
+    # --- the AMT's prior day from NinjaTrader's tick history -----------------------------------------------
+    def ask_value(self, sym: str, start: int, end: int, future) -> str | None:
+        """The trades of `sym`'s RTH session [start, end) from NinjaTrader's tick history, as the NinjaTrader AMT
+        Toolkit downloads them, for the prior day's value: collected (price -> volume, into `future`), not stored. The
+        GAP line to send now, or None: it goes after what `sym` is being asked for (next())."""
+        self.values.setdefault(sym, []).append((start, end, future))
+        if sym in self.windows or self.queue.get(sym):
+            return None
+        return self._next_value(sym)
+
+    def _next_value(self, sym: str) -> str | None:
+        while self.values.get(sym):
+            start, end, fut = self.values[sym].pop(0)
+            if fut.done():   # given up on (timed out)
+                continue
+            w = self.windows[sym] = _Window(start, end)
+            w.collect, w.future = {}, fut
+            return f"GAP|{sym}|{start - 60_000}|{end + 60_000}"
+        return None
+
+    def fail_values(self, sym: str | None = None):
+        """Those asked won't be answered (the add-on reconnected or left, or one timed out): None, and the AMT uses the
+        trades stored here."""
+        for s in ([sym] if sym else list(self.values)):
+            for _, _, fut in self.values.pop(s, []):
+                if not fut.done():
+                    fut.set_result(None)
+        for s, w in list(self.windows.items()):
+            if w.collect is not None and (sym is None or s == sym):
+                del self.windows[s]
+                if w.future is not None and not w.future.done():
+                    w.future.set_result(None)
 
     def settle(self, sym: str):
         """`sym`'s charts and studies reload, once, if anything was filled since the last time."""
@@ -295,6 +333,11 @@ class GapFill:
         w = self.windows.get(sym)
         if not w or w.discard or size <= 0:
             return
+        if w.collect is not None:   # the AMT's: a trade on the minute is the minute it ends, as NinjaTrader's bars
+            if w.start <= (ts - 1) // 60_000 * 60_000 < w.end:
+                price = self.m.instruments[sym].round(price)
+                w.collect[price] = w.collect.get(price, 0) + size
+            return
         if w.hole and w.start - PROBE_MS < ts <= w.start:   # just before the hole: to compare, not to keep
             w.probe[ts // 60_000 * 60_000] = self.m.instruments[sym].round(price)
             return
@@ -325,6 +368,9 @@ class GapFill:
         w = self.windows.get(sym)
         if not w or w.discard:
             return
+        if w.collect is not None:
+            w.bars = True
+            return
         if w.hole and w.start - PROBE_MS - 60_000 <= t < w.start:   # just before the hole: to compare
             w.probe[t] = self.m.instruments[sym].round(c)
             return
@@ -344,6 +390,13 @@ class GapFill:
     def done(self, sym: str, kind: str, count: int, note: str):
         w = self.windows.pop(sym, None)
         if w is None:
+            return
+        if w.collect is not None:
+            got = w.collect if kind == "ticks" and w.collect and not w.bars else None
+            log.info("AMT %s: NinjaTrader's trades for %s: %s", sym, w.start, f"{sum(w.collect.values()):,.0f} contracts"
+                     if got else f"none ({kind}, {note})")
+            if w.future is not None and not w.future.done():
+                w.future.set_result(got)
             return
         if w.hole and kind == "ticks" and not w.count and w.probe and not w.discard:
             self._check(sym, w)   # only trades before the hole came: the provider keeps no tick history for it

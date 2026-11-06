@@ -68,8 +68,13 @@ server, so it draws the same lines the NinjaTrader version does and can alert wi
   charts 5. It loads the last 90 days of stored 1-minute bars, so backfill first. The Year profile only
   sees those 90 days.
 - **The prior day's value** (pdPOC, pdVAH, pdVAL and the 80% Rule) comes from that day's **trades** at one-tick
-  rows, as a tick volume profile and the Session VP do (a minute with no trades stored: its 1-minute bar's volume
-  spread evenly over its ticks). Each day is worked out once in the background and kept; until it is, and for days
+  rows, as a tick volume profile and the Session VP do. For the last 7 days, with the NinjaTrader add-on connected,
+  the trades are **NinjaTrader's tick history** for the session (asked of the add-on as a gap fill is, not stored), so
+  the values are worked out from the same trades as the NinjaTrader AMT Toolkit v1.2.0 (the trades
+  recorded here can differ from them by a few hundred contracts, a few ticks on a value area edge); a trade stamped on
+  the minute counts in the minute it ends, as NinjaTrader's bars. Otherwise, the trades stored here (a minute with none:
+  its 1-minute bar's volume spread evenly over its ticks); a recent day worked out that way is asked of NinjaTrader
+  again after a restart. Each day is worked out once in the background and kept; until it is, and for days
   over 30 days old, it comes from the day's minutes as in the NinjaTrader original (each minute's volume spread over
   its range, in rows of the Profile Row Scale), which on a fast day can put the POC 20 or more points away (NQ, Nov 5:
   26902.50 from minutes, 26880.00 from trades). Its value area is **Value Area %** in *4. Previous Day Value & 80%

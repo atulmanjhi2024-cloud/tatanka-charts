@@ -29,6 +29,9 @@ PROFILE_EVERY_S = 5.0
 IDLE_S = 6 * 3600            # an AMT run no chart shows stays loaded this long...
 IDLE_MAX = 12                # ...unless more are idle than this: the longest idle go first
 PD_RETRY_S = 600             # a prior-day value job that failed waits this long before the next try
+PD_KEY = "amtpd2"            # vp_cache key prefix: PD_KEY|SYM|start|end
+PD_NT_DAYS = 7               # sessions this recent come from NinjaTrader's tick history when the add-on can send it
+PD_NT_WAIT_S = 300           # ...waited for this long each
 LIVE_BAR_AGE_MS = 5 * 60_000  # notices from older bars (buffered data catching up) never alert
 # Every setting as NinjaTrader's property grid shows it, with the checks of its ValidateSettings (tools/gen_amt_schema.py).
 SCHEMA = json.loads(Path(__file__).with_name("amt_schema.json").read_text(encoding="utf-8"))
@@ -202,6 +205,15 @@ class AmtHub:
         self.pd_gen: dict[str, int] = {}       # bumps when a symbol's history changes: a job from before keeps nothing
         self.pd_busy: set[str] = set()
         self.pd_failed: dict[str, float] = {}
+        self.pd_mem: dict[str, dict] = {}      # recent sessions from the trades stored here (NinjaTrader's history
+                                               # couldn't be had): kept in memory only, asked of NinjaTrader again later
+        db = getattr(getattr(market, "store", None), "db", None)
+        try:   # the first version's, from the trades stored here only: worked out again
+            if db is not None:
+                with db:
+                    db.execute("DELETE FROM vp_cache WHERE key LIKE 'amtpd|%'")
+        except sqlite3.Error:
+            pass
 
     def _migrate(self, every: dict) -> dict:
         """The first start since the alert settings are each symbol's: the ones every chart had (the shared settings'
@@ -339,9 +351,10 @@ class AmtHub:
         from trades worked out again."""
         self.pd_gen[sym] = self.pd_gen.get(sym, 0) + 1
         self.pd_failed.pop(sym, None)
+        self.pd_mem.pop(sym, None)
         try:
             with self.m.store.db:
-                self.m.store.db.execute("DELETE FROM vp_cache WHERE key LIKE ?", (f"amtpd|{sym}|%",))
+                self.m.store.db.execute("DELETE FROM vp_cache WHERE key LIKE ?", (f"amtpd%|{sym}|%",))
         except sqlite3.Error:
             log.exception("AMT %s: prior-day values not cleared", sym)
         self._rebuild(sym)
@@ -602,12 +615,46 @@ class AmtHub:
     def _pd_cached(self, sym: str) -> dict:
         out = {}
         try:
-            for key, data in self.m.store.db.execute("SELECT key, data FROM vp_cache WHERE key LIKE ?", (f"amtpd|{sym}|%",)):
+            for key, data in self.m.store.db.execute("SELECT key, data FROM vp_cache WHERE key LIKE ?", (f"{PD_KEY}|{sym}|%",)):
                 _, _, b, e = key.split("|")
                 out[(int(b), int(e))] = [tuple(x) for x in json.loads(data)]
         except (sqlite3.Error, ValueError):
             log.exception("AMT %s: prior-day values not read", sym)
+        out.update(self.pd_mem.get(sym, {}))
         return out
+
+    def _nt_feed(self, sym: str):
+        """The NinjaTrader add-on, when it supplies `sym` and can send the data provider's tick history."""
+        if sym in getattr(self.m, "trade_owner", {}) or not hasattr(self.m, "gapfill"):
+            return None
+        return next((f for f in getattr(self.m, "feed_objs", []) if getattr(f, "name", "") == "ninjatrader"
+                     and hasattr(f, "history_ok") and f.history_ok()), None)
+
+    async def _nt_value(self, sym: str, b: int, e: int, feed) -> dict | None:
+        """The session's trades from NinjaTrader's tick history (as the NinjaTrader AMT Toolkit downloads them): the
+        trades recorded here can differ from them by a few hundred contracts, enough to move a value area edge a few
+        ticks where the profile is thin. Price -> volume, or None."""
+        gf = self.m.gapfill
+        fut = asyncio.get_running_loop().create_future()
+        line = gf.ask_value(sym, b, e, fut)
+        if line is not None and not feed.ask_history(line):
+            gf.fail_values(sym)
+        try:
+            got = await asyncio.wait_for(asyncio.shield(fut), PD_NT_WAIT_S)
+        except asyncio.TimeoutError:
+            got = None
+            w = gf.windows.get(sym)
+            if w is not None and w.future is fut:   # its answer, if it comes, holds nothing else of the symbol
+                del gf.windows[sym]
+            if not fut.done():
+                fut.set_result(None)
+        if not got:
+            return None
+        stored = self.m.store.db.execute("SELECT SUM(v) FROM bars_1m WHERE symbol=? AND t>=? AND t<?", (sym, b, e)).fetchone()[0]
+        if stored and sum(got.values()) < 0.9 * stored:
+            log.info("AMT %s: NinjaTrader's trades for %s short of the stored minutes; the stored trades used", sym, b)
+            return None   # part of the session only
+        return got
 
     def _want_pd(self, sym: str, loaded: AmtRunner | None = None):
         """Recent prior days the runners of `sym` took from minutes as their trades weren't worked out yet: worked out in
@@ -628,13 +675,25 @@ class AmtHub:
             self.m.flush_for_read()
             dv = self.m.store.data_version()
             t0 = time.perf_counter()
-            done = await workers.run("study", pd_job, self.m.store.path, sym, windows, self.m.instruments[sym].tick_size)
+            recent = time.time() * 1000 - PD_NT_DAYS * 86_400_000
+            from_nt = {}
+            for b, e in windows:
+                if e > recent and (feed := self._nt_feed(sym)) is not None:
+                    if (got := await self._nt_value(sym, b, e, feed)) is not None:
+                        from_nt[(b, e)] = sorted(got.items())
+            rest = [w for w in windows if w not in from_nt]
+            done = await workers.run("study", pd_job, self.m.store.path, sym, rest, self.m.instruments[sym].tick_size) if rest else {}
             if self.pd_gen.get(sym, 0) != gen or self.m.store.data_version() != dv:
                 return   # the history changed meanwhile: worked out again when a runner asks
+            # kept: NinjaTrader's, and the older ones from the trades here; a recent one from the trades here stays in
+            # memory only, so NinjaTrader is asked for it again after a restart
+            keep = {**{w: v for w, v in done.items() if w[1] <= recent}, **from_nt}
+            self.pd_mem.setdefault(sym, {}).update({w: v for w, v in done.items() if w[1] > recent})
             with self.m.store.db:
                 self.m.store.db.executemany("INSERT OR REPLACE INTO vp_cache VALUES (?, ?)",
-                                            [(f"amtpd|{sym}|{b}|{e}", json.dumps(v)) for (b, e), v in done.items()])
-            log.info("AMT %s: prior-day value from trades for %d days in %.1fs", sym, len(done), time.perf_counter() - t0)
+                                            [(f"{PD_KEY}|{sym}|{b}|{e}", json.dumps(v)) for (b, e), v in keep.items()])
+            log.info("AMT %s: prior-day value from trades for %d days (%d from NinjaTrader) in %.1fs", sym,
+                     len(windows), len(from_nt), time.perf_counter() - t0)
             self._rebuild(sym)
         except Exception:
             log.exception("AMT %s: prior-day values from trades failed", sym)

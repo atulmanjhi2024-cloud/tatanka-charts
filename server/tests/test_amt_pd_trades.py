@@ -3,6 +3,7 @@ profile and the SVP: a member's tick profile (Rancho Dinero) had NQ's Nov 5 POC 
 each minute's volume spread over its range in 1.25-point rows, had 26902.50. The trades are worked out once in a
 worker and kept (vp_cache); until then, and for older days, the minutes are used as before."""
 import asyncio
+import json
 from datetime import datetime, timedelta
 
 from chartsrv import amt_hub, amt_runner, sessions
@@ -62,16 +63,85 @@ def test_the_prior_day_comes_from_its_trades_once_worked_out(tmp_path, monkeypat
         pd = e.runner.engine.prevDay
         assert e.runner.pd_missing == {RTH}                     # from its minutes for now: 7000-7010 spread evenly
         assert pd.Poc == 7000.0
-        for _ in range(200):                                    # the job: worked out, kept, the runner loads again
+        for _ in range(200):                                    # the job: worked out, the runner loads again
             await asyncio.sleep(0.05)
             if ("ES", 5) not in m.amt.entries and not m.amt.pd_busy:
                 break
-        assert m.store.db.execute("SELECT 1 FROM vp_cache WHERE key=?", (f"amtpd|ES|{RTH[0]}|{RTH[1]}",)).fetchone()
+        # no NinjaTrader add-on: from the trades stored here, kept in memory only (a recent session: NinjaTrader is
+        # asked for it again after a restart)
+        assert RTH in m.amt.pd_mem["ES"] and not m.store.db.execute("SELECT 1 FROM vp_cache WHERE key LIKE 'amtpd%'").fetchone()
         e = await m.amt.entry("ES", 5)
         pd = e.runner.engine.prevDay
         assert (pd.Poc, pd.Vah, pd.Val) == (7002.0, 7004.0, 7002.0) and not e.runner.pd_missing
         m.amt.reload("ES")                                      # a gap fill: worked out again
-        assert not m.store.db.execute("SELECT 1 FROM vp_cache WHERE key LIKE 'amtpd|ES|%'").fetchone()
+        assert "ES" not in m.amt.pd_mem
+    asyncio.run(go())
+
+
+class FakeAddOn:
+    """The NinjaTrader add-on as the hub sees it: GAP lines it is sent (answered by the test through gapfill)."""
+    name = "ninjatrader"
+
+    def __init__(self):
+        self.lines = []
+
+    def history_ok(self):
+        return True
+
+    def ask_history(self, line):
+        self.lines.append(line)
+        return True
+
+
+async def answer(m, addon, trades, kind="ticks"):
+    """Waits for the GAP line, then sends the trades (X lines) and Z, as the add-on would."""
+    for _ in range(200):
+        if addon.lines:
+            break
+        await asyncio.sleep(0.05)
+    _, sym, a, b = addon.lines.pop(0).split("|")
+    assert (int(a), int(b)) == (RTH[0] - 60_000, RTH[1] + 60_000)
+    for ts, px, size in trades:
+        m.gapfill.tick(sym, ts, px, size)
+    m.gapfill.done(sym, kind, len(trades), "ok")
+    m.gapfill.next(sym)
+
+
+def test_the_prior_day_comes_from_ninjatraders_tick_history_when_the_add_on_can_send_it(tmp_path, monkeypatch):
+    """NinjaTrader's history (what the NinjaTrader Toolkit downloads) rather than the trades recorded here: they can
+    differ by a few hundred contracts, a few ticks on a value area edge. A trade on the minute counts in the minute it
+    ends, as NinjaTrader's bars: 08:30:00.000 is 08:29's (left out), 15:00:00.000 is 14:59's (in)."""
+    sessions.set_calendar({"days": []})
+    monkeypatch.setattr(amt_hub.time, "time", lambda: NOW)
+    monkeypatch.setattr(amt_runner.time, "time", lambda: NOW)
+
+    async def go():
+        m, _ = build_market(tmp_path, monkeypatch)
+        history(m.store)
+        addon = FakeAddOn()
+        m.feed_objs.append(addon)
+        await m.amt.entry("ES", 5)
+        trades = [(RTH[0], 7000.0, 30_000),                     # 08:30:00.000: 08:29's, left out
+                  (RTH[0] + 500, 7006.0, 25_000), (RTH[0] + 60_000 * 60, 7002.0, 10_000),
+                  (RTH[1], 7008.0, 3_000)]                      # 15:00:00.000: 14:59's, in
+        await answer(m, addon, trades)
+        for _ in range(200):
+            await asyncio.sleep(0.05)
+            if ("ES", 5) not in m.amt.entries and not m.amt.pd_busy:
+                break
+        row = m.store.db.execute("SELECT data FROM vp_cache WHERE key=?", (f"amtpd2|ES|{RTH[0]}|{RTH[1]}",)).fetchone()
+        assert row and json.loads(row[0]) == [[7002.0, 10_000], [7006.0, 25_000], [7008.0, 3_000]]
+        pd = (await m.amt.entry("ES", 5)).runner.engine.prevDay
+        assert pd.Poc == 7006.0                                 # NinjaTrader's, not the stored trades' 7002
+
+        m.amt.reload("ES")                                      # no tick history to send: the stored trades
+        await m.amt.entry("ES", 5)
+        await answer(m, addon, [], kind="none")
+        for _ in range(200):
+            await asyncio.sleep(0.05)
+            if ("ES", 5) not in m.amt.entries and not m.amt.pd_busy:
+                break
+        assert (await m.amt.entry("ES", 5)).runner.engine.prevDay.Poc == 7002.0
     asyncio.run(go())
 
 

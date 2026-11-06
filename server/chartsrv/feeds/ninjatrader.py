@@ -129,6 +129,8 @@ class NinjaTraderFeed:
                     gf.status[sym] = {**gf.status.get(sym, {}), "state": "dropped", "note": "the add-on disconnected"}
                 for sym in list(getattr(gf, "changed", ())):   # holes left unasked: what was filled reloads now
                     gf.settle(sym)
+                if gf is not None and hasattr(gf, "fail_values"):
+                    gf.fail_values()   # the AMT's sessions asked for: from the trades stored here
             writer.close()
 
     def _send_charts(self, market, writer):
@@ -149,6 +151,17 @@ class NinjaTraderFeed:
         doc = getattr(market, "wl", None)
         if doc is not None:
             writer.write(("W|" + ",".join(wl.futures_roots(doc)) + "\n").encode())
+
+    def ask_history(self, line: str) -> bool:
+        """A GAP line for the AMT's prior day (gapfill.ask_value), sent now; False when no add-on that answers with the
+        data provider's tick history (7+) is connected."""
+        if self.writer is None or self.stats.get("version", 0) < 7:
+            return False
+        self.writer.write((line + "\n").encode())
+        return True
+
+    def history_ok(self) -> bool:
+        return self.writer is not None and self.stats.get("version", 0) >= 7
 
     def _live(self) -> bool:
         """The add-on waits for NinjaTrader's data connection, asks up to its first live trade (GAP|...|live), and
