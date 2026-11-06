@@ -798,6 +798,11 @@ class Engine:
                   "outsideBelow", "gapUp", "gapDown", "rule", "dayFull", "weekFull", "monthFull", "macroFull"):
             setattr(self, n, False)
         self.vaEntry: datetime | None = None
+        # The prior day's value from its trades (a tick volume profile, as the SVP): TradeValue(start, end) gives the
+        # RTH window's [(price, volume)] when they are worked out, else None and the day's minutes are used, as the
+        # NinjaTrader original (each minute's volume spread over its rows). vaFirst/vaEnd: that window.
+        self.TradeValue = None
+        self.vaFirst = self.vaEnd = DMIN
         self.inventoryFrozen, self.dayType, self.pivotBias = "---", "DEVELOPING", "---"
         self.dayColor = GRAY
 
@@ -814,6 +819,22 @@ class Engine:
 
     def BlockStep(self, mult):
         return self.Step * max(1, self.S.sp_ticks_per_block) * mult
+
+    def DayValue(self) -> ProfileStats:
+        """The day just ended: from its trades at one-tick rows when they are worked out (pdPOC, pdVAH, pdVAL then match
+        a tick volume profile and the SVP), else from its minutes."""
+        rows = self.TradeValue(self.vaFirst, self.vaEnd) if self.TradeValue and self.vaFirst != DMIN else None
+        if not rows:
+            return self.day.Stats(self.S.cc_va_pct)
+        step = self.Tick if self.Tick > 0 else self.Step
+        p = Profile(step, 1)
+        for price, volume in sorted(rows):
+            k = bin_(price, step)
+            if k not in p.Rows:
+                p.Rows[k] = 0.0
+                p.insertion.append(k)
+            p.Rows[k] += volume
+        return p.Stats(self.S.cc_va_pct)
 
     def Clone(self) -> "Engine":
         e = Engine.__new__(Engine)
@@ -949,12 +970,13 @@ class Engine:
         lim = S.MaxProfileRows
         if newDay:
             if self.td != DMIN and self.dayFull and self.day.Rows:
-                self.prevDay = self.day.Stats(S.cc_va_pct)
+                self.prevDay = self.DayValue()
             if not S.pd_use_rth and self.td != DMIN:
                 self.pdH, self.pdL = self.tradeH, self.tradeL
             self.NakedRoll(self.nd, "Daily", self.dayFull, S.npoc_d_show, S.npoc_w_d, b.Start)
             self.dayFull = self.td != DMIN or minute_of(b.Start) == 1020
             self.day = Profile(self.ValueStep(self.rowMult), lim)
+            self.vaFirst = self.vaEnd = DMIN
             self.nd = Profile(self.NakedStep(self.rowMult), lim)
             self.td, self.dayStart, self.tradeH, self.tradeL = d, b.Start, b.High, b.Low
             self.rule, self.vaEntry, self.rthO = False, None, NAN
@@ -1098,6 +1120,9 @@ class Engine:
                 self.main.Add(q, True)
             if S.cc_enable and self.Ins(q.Start, S.cc_sess_def):
                 self.day.Add(q, True)
+                if self.vaFirst == DMIN:
+                    self.vaFirst = q.Start
+                self.vaEnd = q.End
         dev = self.main.Stats(S.mvp_val_pct) if visuals else ProfileStats()
         self.UpdateTpo(b, spSession)
         self.contextHlc += (b.High + b.Low + b.Close) / 3 * b.Volume

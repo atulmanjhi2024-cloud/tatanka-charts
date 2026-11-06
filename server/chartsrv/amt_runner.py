@@ -6,6 +6,7 @@ TatankaAmtToolkit.cs): N-minute chart bars (1-30) aligned to the 17:00 CT open, 
 inside it, completed 30-minute bars for the prior-month profile, and completed daily bars for ATR. A chart
 bar is committed when the next one starts; the forming bar is previewed on an engine clone."""
 import bisect
+import time
 from collections import deque
 from datetime import datetime, timedelta
 
@@ -18,6 +19,7 @@ from .sessions import CT, SessionClock
 MACRO_MINUTES = 30
 HISTORY_DAYS_KEPT = 20      # past days' IB / prior-day lines kept on the chart (as the C# Commit)
 SAMPLE_DAYS_KEPT = 20
+PD_TRADE_DAYS = 30          # prior-day value from trades for days this recent (older ones: past the lines kept)
 
 
 def ct(ms: int) -> datetime:
@@ -117,6 +119,10 @@ class AmtRunner:
         self.tracker = LevelAlertTracker()
         self.sent: set[str] = set()
         self.record = record          # input log for the C# comparison test
+        # the prior day's value from its trades: RTH window (ms) -> [(price, volume)], [] with nothing stored; the
+        # windows asked for and not known yet (the hub works them out, then loads the runner again)
+        self.pd_values: dict[tuple[int, int], list] = {}
+        self.pd_missing: set[tuple[int, int]] = set()
         self.commit_visuals = False   # tests: draw every committed frame too
 
     # --- inputs ----------------------------------------------------------------------------------------
@@ -220,12 +226,21 @@ class AmtRunner:
             first = self.chart.bars[self.chart.keys[0]]
             self.engine = Engine(self.S, self.symbol, self.tick, first[-1].c, self.minutes)
             self.engine.Calendar, self.engine.RthSession = self.calendar, self.rth_session
+            self.engine.TradeValue = self.trade_value
             if self.record is not None:
                 self.record.append(("E", self.symbol, self.tick, first[-1].c, self.minutes))
             if self.levels:
                 self.engine.ReplaceLevels(self.levels)
                 if self.record is not None:
                     self.record.append(("L", [(x.Name, x.Price, x.Kind) for x in self.levels]))
+
+    def trade_value(self, start: datetime, end: datetime):
+        """Engine.TradeValue: the window's trades if worked out; a recent one not yet is noted for the hub."""
+        key = (epoch_ms(start), epoch_ms(end))
+        rows = self.pd_values.get(key)
+        if rows is None and key[1] > (time.time() - PD_TRADE_DAYS * 86_400) * 1000:
+            self.pd_missing.add(key)
+        return rows or None
 
     def commit_ready(self) -> list:
         """Commits every chart bar except the newest. Committed frames are never drawn (the preview is), so

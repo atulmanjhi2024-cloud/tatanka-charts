@@ -19,7 +19,7 @@ from . import amt, sessions, workers
 from .amt_runner import AmtRunner
 from .gapfill import filling
 from .models import Bar, Tick
-from .store import iter_bars_1m
+from .store import connect, iter_bars_1m
 
 log = logging.getLogger(__name__)
 HISTORY_DAYS = 90            # the Toolkit's recommended 90 days loaded
@@ -28,6 +28,7 @@ STEP_S = 1.0
 PROFILE_EVERY_S = 5.0
 IDLE_S = 6 * 3600            # an AMT run no chart shows stays loaded this long...
 IDLE_MAX = 12                # ...unless more are idle than this: the longest idle go first
+PD_RETRY_S = 600             # a prior-day value job that failed waits this long before the next try
 LIVE_BAR_AGE_MS = 5 * 60_000  # notices from older bars (buffered data catching up) never alert
 # Every setting as NinjaTrader's property grid shows it, with the checks of its ValidateSettings (tools/gen_amt_schema.py).
 SCHEMA = json.loads(Path(__file__).with_name("amt_schema.json").read_text(encoding="utf-8"))
@@ -141,6 +142,35 @@ class AmtEntry:
         self.sig = None
 
 
+def pd_job(db_path, symbol: str, windows: list, tick: float) -> dict:
+    """Worker job: each RTH window's volume at price, the way the SVP reads a session: its trades, and for a minute
+    with none stored (gap-filled history is bars only) its 1-minute bar's volume spread evenly over its ticks.
+    {(start, end): [(price, volume)]}, [] when nothing is stored."""
+    db = connect(db_path, readonly=True)
+    out = {}
+    try:
+        for b, e in windows:
+            vol: dict[float, float] = {}
+            for px, v in db.execute("SELECT price, SUM(size) FROM ticks WHERE symbol=? AND ts>=? AND ts<? AND size>0 "
+                                    "GROUP BY price", (symbol, b, e)):
+                vol[px] = vol.get(px, 0.0) + v
+            traded = {m for (m,) in db.execute("SELECT DISTINCT ts / 60000 FROM ticks WHERE symbol=? AND ts>=? AND ts<? "
+                                               "AND size>0", (symbol, b, e))}
+            for t, h, low, v in db.execute("SELECT t, h, l, v FROM bars_1m WHERE symbol=? AND t>=? AND t<? AND v>0",
+                                           (symbol, b, e)):
+                if t // 60_000 in traded:
+                    continue
+                lo, hi = round(low / tick), round(h / tick)
+                n = max(1, hi - lo + 1)
+                for k in range(lo, lo + n):
+                    px = round(k * tick, 10)
+                    vol[px] = vol.get(px, 0.0) + v / n
+            out[(b, e)] = sorted(vol.items())
+    finally:
+        db.close()
+    return out
+
+
 def _load_history(db_path, runner: AmtRunner, symbol: str, split: int):
     for b in iter_bars_1m(db_path, symbol, split - HISTORY_DAYS * 86_400_000, split):
         runner.add_minute(b)
@@ -169,6 +199,9 @@ class AmtHub:
                   {sym: {k: v for k, v in ov.items() if k in PER_SYMBOL} for sym, ov in per.items() if isinstance(ov, dict)})
         self.alert_times: dict[str, deque] = {}
         self.cap_warned: dict[str, bool] = {}
+        self.pd_gen: dict[str, int] = {}       # bumps when a symbol's history changes: a job from before keeps nothing
+        self.pd_busy: set[str] = set()
+        self.pd_failed: dict[str, float] = {}
 
     def _migrate(self, every: dict) -> dict:
         """The first start since the alert settings are each symbol's: the ones every chart had (the shared settings'
@@ -302,7 +335,18 @@ class AmtHub:
         self.ensure_alert_runners()
 
     def reload(self, sym: str):
-        """History of `sym` changed: its engines load again (charts are told to ask anew)."""
+        """History of `sym` changed: its engines load again (charts are told to ask anew), the prior days' values
+        from trades worked out again."""
+        self.pd_gen[sym] = self.pd_gen.get(sym, 0) + 1
+        self.pd_failed.pop(sym, None)
+        try:
+            with self.m.store.db:
+                self.m.store.db.execute("DELETE FROM vp_cache WHERE key LIKE ?", (f"amtpd|{sym}|%",))
+        except sqlite3.Error:
+            log.exception("AMT %s: prior-day values not cleared", sym)
+        self._rebuild(sym)
+
+    def _rebuild(self, sym: str):
         for key, e in list(self.entries.items()):
             if key[0] != sym:
                 continue
@@ -367,6 +411,7 @@ class AmtHub:
             move = sessions.rth_mover(inst.rth)
             runner = AmtRunner(sym, inst.tick_size, minutes, self.settings_for(sym, overrides if sig else None), calendar=inst.calendar,
                                rth_session=sessions.move_session("0830-1500", move))
+            runner.pd_values = self._pd_cached(sym)
             self._levels(runner, sym)
             e = self.entries[key] = AmtEntry(runner)
             # same cutoff scheme as chart history: stored minutes before the current one, live after
@@ -387,6 +432,7 @@ class AmtHub:
                 # restart, a gap fill, new settings) may have sent them already
                 runner.fresh(runner.preview()[1])
                 log.info("AMT %s %sm ready in %.1fs", sym, minutes, time.perf_counter() - t0)
+                self._want_pd(sym, runner)
             except Exception as ex:
                 log.exception("AMT history failed for %s %sm", sym, minutes)
                 e.error = str(ex)
@@ -544,11 +590,57 @@ class AmtHub:
             e.sig = sig
             notices = r.commit_ready()
             frame, pn = r.preview()
+            if r.pd_missing:
+                self._want_pd(sym)
             tk = self.m.last_tick.get(sym)
             if cfg and frame is not None and tk and now - tk.ts < LIVE_BAR_AGE_MS:   # live data only
                 self._notify(sym, r.fresh(notices + pn), tk.price)
             for client, sid in list(e.subs):
                 client.put(self._message(e, client, sid, full=False))
+
+    # --- the prior day's value from trades ----------------------------------------------------------------
+    def _pd_cached(self, sym: str) -> dict:
+        out = {}
+        try:
+            for key, data in self.m.store.db.execute("SELECT key, data FROM vp_cache WHERE key LIKE ?", (f"amtpd|{sym}|%",)):
+                _, _, b, e = key.split("|")
+                out[(int(b), int(e))] = [tuple(x) for x in json.loads(data)]
+        except (sqlite3.Error, ValueError):
+            log.exception("AMT %s: prior-day values not read", sym)
+        return out
+
+    def _want_pd(self, sym: str, loaded: AmtRunner | None = None):
+        """Recent prior days the runners of `sym` took from minutes as their trades weren't worked out yet: worked out in
+        a worker and kept (vp_cache), then the runners load again with them. loaded: one just loaded (not ready yet)."""
+        if sym in self.pd_busy or time.monotonic() - self.pd_failed.get(sym, -1e9) < PD_RETRY_S:
+            return
+        missing = set(loaded.pd_missing) if loaded else set()
+        for key, e in self.entries.items():
+            if key[0] == sym and e.ready.is_set() and not e.error:
+                missing |= e.runner.pd_missing
+        if missing:
+            self.pd_busy.add(sym)
+            asyncio.get_running_loop().create_task(self._fill_pd(sym, sorted(missing)))
+
+    async def _fill_pd(self, sym: str, windows: list):
+        gen = self.pd_gen.get(sym, 0)
+        try:
+            self.m.flush_for_read()
+            dv = self.m.store.data_version()
+            t0 = time.perf_counter()
+            done = await workers.run("study", pd_job, self.m.store.path, sym, windows, self.m.instruments[sym].tick_size)
+            if self.pd_gen.get(sym, 0) != gen or self.m.store.data_version() != dv:
+                return   # the history changed meanwhile: worked out again when a runner asks
+            with self.m.store.db:
+                self.m.store.db.executemany("INSERT OR REPLACE INTO vp_cache VALUES (?, ?)",
+                                            [(f"amtpd|{sym}|{b}|{e}", json.dumps(v)) for (b, e), v in done.items()])
+            log.info("AMT %s: prior-day value from trades for %d days in %.1fs", sym, len(done), time.perf_counter() - t0)
+            self._rebuild(sym)
+        except Exception:
+            log.exception("AMT %s: prior-day values from trades failed", sym)
+            self.pd_failed[sym] = time.monotonic()
+        finally:
+            self.pd_busy.discard(sym)
 
     def health(self) -> dict:
         name = lambda k: f"{k[0]} {k[1]}m" + (f" own {hashlib.sha1(k[2].encode()).hexdigest()[:6]}" if len(k) > 2 else "")   # noqa: E731

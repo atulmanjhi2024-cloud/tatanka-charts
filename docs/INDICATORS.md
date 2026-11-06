@@ -67,6 +67,14 @@ server, so it draws the same lines the NinjaTrader version does and can alert wi
 - Engine bars are 1-30 minutes: minute charts use their own size, longer time charts 30, tick/volume/range
   charts 5. It loads the last 90 days of stored 1-minute bars, so backfill first. The Year profile only
   sees those 90 days.
+- **The prior day's value** (pdPOC, pdVAH, pdVAL and the 80% Rule) comes from that day's **trades** at one-tick
+  rows, as a tick volume profile and the Session VP do (a minute with no trades stored: its 1-minute bar's volume
+  spread evenly over its ticks). Each day is worked out once in the background and kept; until it is, and for days
+  over 30 days old, it comes from the day's minutes as in the NinjaTrader original (each minute's volume spread over
+  its range, in rows of the Profile Row Scale), which on a fast day can put the POC 20 or more points away (NQ, Nov 5:
+  26902.50 from minutes, 26880.00 from trades). Its value area is **Value Area %** in *4. Previous Day Value & 80%
+  Rule*, a fraction (0.68 by default; 0.70 to compare with a 70% profile). The one in *11. Volume Profile* is the
+  developing profile's.
 - **Settings…** opens every Toolkit setting in the Indicators dialog (above): the same 19 groups, checked the way
   the indicator's own validation does; the Toolkit reloads on Apply. Each chart's own, like the other indicators
   (the server runs one Toolkit per distinct set of settings; charts on the same settings share it), except:
