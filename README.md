@@ -18,6 +18,12 @@ You need [Git](https://git-scm.com/downloads) and [Docker Desktop](https://www.d
 (on Windows it sets up WSL 2 when it installs; start it once and wait until it says it is running). For live futures,
 NinjaTrader 8 or another feed (Connections, after the first run); without one the app runs on its simulator.
 
+**Docker Desktop won't start on Windows** (it says virtualization is off, or WSL 2 fails to start): turn on
+virtualization in the PC's BIOS. Task Manager > Performance > CPU shows **Virtualization: Enabled** when it is already
+on. To turn it on: restart the PC and press the setup key while it starts (usually Del, F2, F10 or F12; the maker's
+logo screen names it), find the setting under Advanced or CPU Configuration (Intel: **Intel Virtualization Technology**
+or **VT-x**; AMD: **SVM Mode** or **AMD-V**), enable it, save and exit. Then start Docker Desktop again.
+
 The code lives in the public repository tatankatrading/tatanka-charts. Clone it anywhere:
 
 ```
