@@ -55,7 +55,7 @@ down instead of overlapping. Range and lines are per symbol, on the Plan tab.
 
 ## Tatanka AMT Toolkit
 
-Studies ▾ → **Tatanka AMT Toolkit**. A line-for-line Python port of the NinjaTrader AMT Toolkit v1.1.0
+Studies ▾ → **Tatanka AMT Toolkit**. A line-for-line Python port of the NinjaTrader AMT Toolkit v1.2.0
 from tatankatrading/tatanka-indicators (MPL 2.0; the ported files keep its license header). It runs on the
 server, so it draws the same lines the NinjaTrader version does and can alert with no chart open.
 

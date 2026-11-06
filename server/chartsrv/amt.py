@@ -2,7 +2,7 @@
 # This Source Code Form is subject to the Mozilla Public License, v. 2.0.
 # If a copy of the MPL was not distributed with this file, obtain one at https://mozilla.org/MPL/2.0/.
 """Tatanka AMT Toolkit calculation engine, ported from the NinjaTrader 8 source
-(tatankatrading/tatanka-indicators, ninjatrader/TatankaAmtToolkit.cs, v1.1.0).
+(tatankatrading/tatanka-indicators, ninjatrader/TatankaAmtToolkit.cs, v1.2.0).
 
 The Engine mirrors the C# Engine statement for statement and keeps its names, so the two can be read side
 by side: CT sessions, profile row rules, prior-day/month value, initial balance, overnight inventory and
@@ -19,7 +19,7 @@ from functools import lru_cache
 
 from . import sessions
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 NAN = float("nan")
 DMIN = datetime.min
 
