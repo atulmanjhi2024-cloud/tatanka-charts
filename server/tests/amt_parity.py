@@ -4,7 +4,9 @@
     python tests/amt_parity.py <workdir> [days] [minutes] [seed] [root] [settings_file]
 
 Generates synthetic 1-minute Globex data, drives AmtRunner (recording every engine input), replays the
-record through both engines, and diffs their per-frame dumps."""
+record through both engines, and diffs their per-frame dumps. Each day's RTH trades (synthetic: each minute's volume at
+its close, a fifth at its high) go to both engines' TradeValue (T records), as NinjaTrader's tick history or the
+trades stored here do: the prior day's value, and its drawn profile in Session mode, come from them."""
 import math
 import random
 import subprocess
@@ -16,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from chartsrv import amt                      # noqa: E402
 from chartsrv.amt_runner import AmtRunner, epoch_ms   # noqa: E402
 from chartsrv.models import Bar as MBar       # noqa: E402
-from chartsrv.sessions import is_open         # noqa: E402
+from chartsrv.sessions import CT, is_open     # noqa: E402
 
 def D(x):
     """C# double.ToString("R"): 2 not 2.0, 1E-05 not 1e-05."""
@@ -76,7 +78,42 @@ def write_record(rec, path):
             lines += [f"S|{T(x.Start)}|{T(x.End)}|{D(x.Open)}|{D(x.High)}|{D(x.Low)}|{D(x.Close)}|{D(x.Volume)}" for x in subs]
         elif k == "O":
             lines.append(f"O|{D(r[1])}|{r[2]}")
+        elif k == "T":
+            lines.append(f"T|{r[1]}|" + ";".join(f"{D(p)},{D(v)}" for p, v in r[2]))
+        elif k == "Q":
+            lines.append(f"Q|{T(r[1])}|" + ";".join(f"{D(p)},{D(v)}" for p, v in r[2]))
     Path(path).write_text("\n".join(lines) + "\n")
+
+
+def trades_by_day(bars, tick):
+    """Synthetic RTH trades per trade date: each minute's volume at its close and a fifth more at its high."""
+    out: dict = {}
+    for m in bars:
+        t = datetime.fromtimestamp(m.t / 1000, CT).replace(tzinfo=None)
+        if not (8 * 60 + 30 <= t.hour * 60 + t.minute < 15 * 60):
+            continue
+        day = out.setdefault(t.strftime("%Y-%m-%d"), {})
+        for px, v in ((m.c, m.v), (m.h, max(1, m.v // 5))):
+            px = round(round(px / tick) * tick, 10)
+            day[px] = day.get(px, 0) + v
+    return {d: sorted(v.items()) for d, v in out.items()}
+
+
+def trades_by_minute(bars, tick, days):
+    """Synthetic trades of each minute of the last `days` days (the current period's, as downloaded or live): its
+    volume at its close and a third more at its low. {minute start (CT, naive): [(price, volume)]}"""
+    last = bars[-1].t
+    out = {}
+    for m in bars:
+        if m.t < last - days * 86_400_000:
+            continue
+        t = datetime.fromtimestamp(m.t / 1000, CT).replace(tzinfo=None)
+        rows: dict = {}
+        for px, v in ((m.c, m.v), (m.l, max(1, m.v // 3))):
+            px = round(round(px / tick) * tick, 10)
+            rows[px] = rows.get(px, 0) + v
+        out[t] = sorted(rows.items())
+    return out
 
 
 def dump(o, f):
@@ -100,6 +137,8 @@ def dump(o, f):
 def replay_python(rec_path, settings=None):
     s = amt.Settings(settings)
     e, daily, tracker, last, out = None, amt.DailyHistory(s.daily_atr_length), amt.LevelAlertTracker(), None, []
+    trades: dict = {}
+    minute_trades: dict = {}
     P = lambda x: float(x)
     PT = lambda x: datetime.strptime(x, "%Y-%m-%dT%H:%M:%S")
     PB = lambda p, o: amt.Bar(PT(p[o]), PT(p[o + 1]), P(p[o + 2]), P(p[o + 3]), P(p[o + 4]), P(p[o + 5]), P(p[o + 6]))
@@ -110,6 +149,12 @@ def replay_python(rec_path, settings=None):
         k = p[0]
         if k == "E":
             e = amt.Engine(s, p[1], P(p[2]), P(p[3]), int(p[4]))
+            e.TradeValue = lambda first, end: trades.get(first.strftime("%Y-%m-%d"))
+            e.MinuteTrades = lambda start, volume: minute_trades.get(start)
+        elif k == "Q":
+            minute_trades[PT(p[1])] = [(P(x), P(y)) for x, y in (q.split(",") for q in p[2].split(";"))] if p[2] else []
+        elif k == "T":
+            trades[p[1]] = [(P(x), P(y)) for x, y in (q.split(",") for q in p[2].split(";"))] if p[2] else []
         elif k == "L":
             lv = [] if len(p) < 2 or not p[1] else [amt.Level(n, P(x), int(kind)) for n, x, kind in (q.split(",") for q in p[1].split(";"))]
             e.ReplaceLevels(lv)
@@ -165,6 +210,12 @@ def main():
     r.commit_ready()
     r.preview()
     rec_path, cs_out = work / "record.txt", work / "cs.txt"
+    if __import__("os").environ.get("AMT_TICKS", "1") == "1":   # the trades right after the engine (E)
+        at = next(i for i, x in enumerate(rec) if x[0] == "E") + 1
+        rec[at:at] = [("T", d, rows) for d, rows in trades_by_day(bars, tick).items()]
+    if __import__("os").environ.get("AMT_MINUTE_TRADES", "1") == "1":   # the last 6 days' minutes' trades (Q)
+        at = next(i for i, x in enumerate(rec) if x[0] == "E") + 1
+        rec[at:at] = [("Q", t, rows) for t, rows in trades_by_minute(bars, tick, 6).items()]
     write_record(rec, rec_path)
     subprocess.run(["mono"] + (["--optimize=-all"] if __import__("os").environ.get("MONO_NOOPT") else []) + [str(work / "harness.exe"), str(rec_path), str(cs_out)] + ([settings_file] if settings_file else []), check=True)
     py = replay_python(rec_path, overrides)

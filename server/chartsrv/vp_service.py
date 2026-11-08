@@ -33,6 +33,7 @@ from zoneinfo import ZoneInfo
 from . import sessions, vp, workers
 from .sessions import CT, day_open, next_session_start, session_start, to_ct
 from .store import connect, iter_bars_1m
+from .studies import RthClock
 
 log = logging.getLogger(__name__)
 MINUTE = 60_000
@@ -70,8 +71,9 @@ class MinuteSource:
 class MinuteState:
     """An AAVP or PVP series and how far it has been fed. Pickled to and from a worker for the first build."""
 
-    def __init__(self, series):
+    def __init__(self, series, hours=None):
         self.series = series
+        self.hours = hours      # an RTH chart's RthClock: only its regular hours' minutes, as NinjaTrader's series on its template
         self.src = MinuteSource()
         self.pend_t = None      # open time of the last minute fed: read again next time (it may have been forming)
         self.last = None        # PVP: the profile being fed
@@ -79,6 +81,8 @@ class MinuteState:
         self.watch_p: list[float] = []      # ... and their prices, both sorted by price
 
     def feed(self, bars):
+        if getattr(self, "hours", None) is not None:
+            bars = [b for b in bars if self.hours.day(b.t) is not None]
         ser = self.series
         if isinstance(ser, vp.AnchorSeries):
             for b in bars:
@@ -109,8 +113,10 @@ class MinuteState:
             self.watch.insert(i, (s[name], p, name))
 
     def _touch(self, low: float, high: float, time: int):
-        """Touches.Observe for every closed profile: low <= level <= high, after the profile's last minute."""
-        i, j = bisect.bisect_left(self.watch_p, low), bisect.bisect_right(self.watch_p, high)
+        """Touches.Observe for every closed profile: low <= level <= high, after the profile's last minute. A level is a
+        tick count times the tick size (2600.1000000000004 on GC): a minute whose high is its price (2600.1) touches it."""
+        i = bisect.bisect_left(self.watch_p, low - 1e-9 * max(1.0, abs(low)))
+        j = bisect.bisect_right(self.watch_p, high + 1e-9 * max(1.0, abs(high)))
         if i == j:
             return
         keep = []
@@ -141,6 +147,7 @@ class SvpState:
         self.last = None
         self.trades = 0      # trades taken
         self.approx = 0      # minutes taken from 1-minute bars
+        self.upto = begin    # bar replay's: read through here (trades and minutes before it)
 
     def add_bar(self, t: int, o: float, h: float, low: float, c: float, v: float, tick: float):
         """A minute with no stored trades: its volume spread evenly over its ticks, up or down by its close."""
@@ -203,6 +210,27 @@ def svp_job(db_path, symbol: str, windows: list, max_rowid: int, tick: float, no
     return out
 
 
+def svp_upto(db_path, symbol: str, st: SvpState, upto: int, max_rowid: int, tick: float) -> SvpState:
+    """Worker job, bar replay's forming session: its trades from where it was read to `upto` (a minute's start), and
+    the 1-minute bar of each minute in between with none."""
+    db = connect(db_path, readonly=True)
+    a, b = st.upto, min(upto, st.end)
+    try:
+        traded = {m for (m,) in db.execute("SELECT DISTINCT ts / ? FROM ticks WHERE symbol=? AND ts>=? AND ts<? "
+                                           "AND rowid<=? AND size>0", (MINUTE, symbol, a, b, max_rowid))}
+        for t, o, h, low, c, v in db.execute("SELECT t, o, h, l, c, v FROM bars_1m WHERE symbol=? AND t>=? AND t<? ORDER BY t",
+                                             (symbol, a, b)):
+            if t // MINUTE not in traded:
+                st.add_bar(t, o, h, low, c, v, tick)
+        for price, size, ts in db.execute("SELECT price, size, ts FROM ticks WHERE symbol=? AND ts>=? AND ts<? "
+                                          "AND rowid<=? ORDER BY ts, rowid", (symbol, a, b, max_rowid)):
+            st.add(price, size, ts, tick)
+    finally:
+        db.close()
+    st.upto = max(a, b)
+    return st
+
+
 def _r(x: float) -> float:
     return round(x, 4)
 
@@ -244,6 +272,7 @@ class _Entry:
         self.gen = gen          # the symbol's history it is built from (VpService.gen)
         self.lock = asyncio.Lock()
         self.ready = False
+        self.builds = 0         # bar replay's: built again from the start (it went back), a new build for `have`
 
 
 class VpService:
@@ -285,29 +314,42 @@ class VpService:
         """Names a build (its settings, the symbol's history and this server run): what a client's `have` refers to."""
         return hashlib.sha1(repr((key, gen, self.boot)).encode()).hexdigest()[:12]
 
-    async def get(self, kind: str, symbol: str, key: str = "", have: set[int] = frozenset(), given: dict | None = None) -> dict:
+    async def get(self, kind: str, symbol: str, key: str = "", have: set[int] = frozenset(), given: dict | None = None,
+                  until: int | None = None, rid: str = "", rth: bool = False) -> dict:
         """key and have: the build the client holds profiles of, and the starts of its finished ones. given: the
-        settings the chart uses, if not the saved ones."""
+        settings the chart uses, if not the saved ones. until: bar replay's clock, the profiles as they stood then (to
+        its minute): built apart from the live ones (and from another replaying chart's: rid names the chart),
+        carried forward as the replay plays and built again if it goes back."""
         s = self.settings(kind, given)
         tick = self.m.instruments[symbol].tick_size
         base = {"kind": kind, "symbol": symbol, "tick": tick}
         if kind == "prof":
-            return {**base, **await self._svp(symbol, s, tick, key, have)}
-        return {**base, **await self._minutes(kind, symbol, s, tick, key, have)}
+            return {**base, **await self._svp(symbol, s, tick, key, have, until, rid)}
+        return {**base, **await self._minutes(kind, symbol, s, tick, key, have, until, rid, rth)}
 
     # --- AAVP / PVP ------------------------------------------------------------------------------------------------
-    async def _minutes(self, kind: str, symbol: str, s: dict, tick: float, held: str, have) -> dict:
+    async def _minutes(self, kind: str, symbol: str, s: dict, tick: float, held: str, have, until: int | None = None,
+                       rid: str = "", rth: bool = False) -> dict:
         rows = (s["RowsLayout"] == "NumberOfRows", s["RowSize"], float(s["ValueAreaPercent"]), s["ValueAreaMethod"] == "AtLeastTarget")
+        inst_rth = getattr(self.m.instruments.get(symbol), "rth", None) if rth else None
+        hours = RthClock(inst_rth) if inst_rth else None   # an RTH chart: its regular hours' minutes only
         if kind == "aavp":
-            key, make = (kind, symbol, s["AnchorPeriod"], *rows), lambda: MinuteState(vp.AnchorSeries(s["AnchorPeriod"], tick, *rows))
+            key = (kind, symbol, s["AnchorPeriod"], *rows, bool(hours))
+            make = lambda: MinuteState(vp.AnchorSeries(s["AnchorPeriod"], tick, *rows), hours)   # noqa: E731
         else:
-            key = (kind, symbol, s["Period"], s["PeriodMultiplier"], s["ProfilesToKeep"], *rows)
-            make = lambda: MinuteState(vp.PeriodicSeries(s["Period"], s["PeriodMultiplier"], s["ProfilesToKeep"], tick, *rows))   # noqa: E731
+            key = (kind, symbol, s["Period"], s["PeriodMultiplier"], s["ProfilesToKeep"], *rows, bool(hours))
+            make = lambda: MinuteState(vp.PeriodicSeries(s["Period"], s["PeriodMultiplier"], s["ProfilesToKeep"], tick, *rows), hours)   # noqa: E731
+        if until is not None:
+            key = (*key, "replay", rid)
         e = self._entry(key, make)
         async with e.lock:
             m = self.m
-            split, live = m.recent_minutes(symbol)
+            split, live = m.recent_minutes(symbol) if until is None else m.recent_minutes(symbol, until)
             st = e.state
+            if until is not None and e.ready and (st.pend_t is None or until // MINUTE * MINUTE <= st.pend_t):   # went back
+                st = e.state = make()
+                e.ready = False
+                e.builds += 1
             if not e.ready:
                 t0 = time.perf_counter()
                 since = self._first_minute(kind, symbol, s, split)
@@ -330,7 +372,7 @@ class VpService:
                 return {"profile": minute_json(ser.current) if ser.current else None,
                         "first_td": ser.first_td.isoformat() if ser.first_td else None,
                         "last_td": ser.last_td.isoformat() if ser.last_td else None}
-            bk = self.build_key(key, e.gen)
+            bk = self.build_key(key, (e.gen, e.builds))
             have = have if held == bk else ()
             return {"key": bk, "profiles": [j for p in ser.profiles if (j := minute_json(p, not (p.closed and p.start_chart in have)))]}
 
@@ -353,8 +395,9 @@ class VpService:
         return day_open(w[0])
 
     # --- SVP --------------------------------------------------------------------------------------------------------
-    def _windows(self, symbol: str, s: dict, now: int) -> list[tuple[int, int]]:
-        """The newest SessionsToKeep session windows with trades or 1-minute bars, oldest first, as epoch ms [begin, end)."""
+    def _windows(self, symbol: str, s: dict, now: int, replay: bool = False) -> list[tuple[int, int]]:
+        """The newest SessionsToKeep session windows with trades or 1-minute bars, oldest first, as epoch ms [begin, end).
+        replay: `now` is bar replay's clock: only what was stored before it counts (a window opening then has none yet)."""
         tz = ZONES[s["SessionTimeZone"]]
         start, end = vp.parse_time(s["SessionStart"]), vp.parse_time(s["SessionEnd"])
         today = datetime.fromtimestamp(now / 1000, tz).date()
@@ -370,15 +413,16 @@ class VpService:
             e_local = day + end if end > start else day + timedelta(days=1) + end
             b = int(b_local.replace(tzinfo=tz).timestamp() * 1000)
             e = int(e_local.replace(tzinfo=tz).timestamp() * 1000)
-            if b > now or not (db.execute("SELECT 1 FROM ticks WHERE symbol=? AND ts>=? AND ts<? LIMIT 1", (symbol, b, e)).fetchone()
-                                or db.execute("SELECT 1 FROM bars_1m WHERE symbol=? AND t>=? AND t<? AND v>0 LIMIT 1", (symbol, b, e)).fetchone()):
+            upto = min(e, now) if replay else e
+            if b > now or not (db.execute("SELECT 1 FROM ticks WHERE symbol=? AND ts>=? AND ts<? LIMIT 1", (symbol, b, upto)).fetchone()
+                                or db.execute("SELECT 1 FROM bars_1m WHERE symbol=? AND t>=? AND t<? AND v>0 LIMIT 1", (symbol, b, upto)).fetchone()):
                 continue
             out.append((b, e))
             if len(out) >= s["SessionsToKeep"]:
                 break
         return out[::-1]
 
-    async def _svp(self, symbol: str, s: dict, tick: float, held: str, have) -> dict:
+    async def _svp(self, symbol: str, s: dict, tick: float, held: str, have, until: int | None = None, rid: str = "") -> dict:
         m = self.m
         if s["SessionTimeZone"] in ("ExchangeTemplate", "Central", "Chart") and symbol in m.instruments:   # its own hours
             move = sessions.rth_mover(m.instruments[symbol].rth)
@@ -390,12 +434,15 @@ class VpService:
         except ValueError as ex:
             return {"error": str(ex), "sessions": []}
         key = ("prof", symbol, s["SessionStart"], s["SessionEnd"], s["SessionTimeZone"])
-        e = self._entry(key, lambda: None)
+        replay = until is not None
+        e = self._entry((*key, "replay", rid) if replay else key, lambda: None)
         async with e.lock:
             m.flush_for_read()
             dv = m.store.data_version()   # another program's commits (an import) from here on: see below
             now, max_rowid = int(time.time() * 1000), m.store.max_tick_rowid()
-            windows = self._windows(symbol, s, now)
+            if replay:
+                now = min(now, until // MINUTE * MINUTE)
+            windows = self._windows(symbol, s, now, replay)
             tpr, pct, at_least = s["TicksPerRow"], float(s["ValueAreaPercent"]), s["ValueAreaMethod"] == "AtLeastTarget"
             bk = self.build_key((*key, tpr, pct, at_least, s["SessionsToKeep"]), e.gen)
             have = have if held == bk else ()
@@ -413,13 +460,19 @@ class VpService:
                     missing.append((b, en))
             cur_w = windows[-1] if windows and windows[-1][1] > now else None
             cur = e.state
-            if cur is not None and (cur_w is None or (cur.begin, cur.end) != cur_w or not cur.trades
-                                    or max_rowid - cur.rowid > SVP_CATCH_UP):
+            if replay:   # its forming session, read to the replay clock: carried forward, or again from its open
+                if cur is not None and ((cur.begin, cur.end) != cur_w or cur.upto > now):
+                    cur = e.state = None
+                if cur_w is not None:
+                    cur = e.state = await workers.run("chart", svp_upto, m.store.path, symbol, cur or SvpState(*cur_w),
+                                                      now, max_rowid, tick)
+            elif cur is not None and (cur_w is None or (cur.begin, cur.end) != cur_w or not cur.trades
+                                      or max_rowid - cur.rowid > SVP_CATCH_UP):
                 # that session ended (it is worked out again from storage, in time order), or it has no trades yet:
                 # its newest minutes are bars, read again each time; or nobody asked for a while: worked out again
                 # in a worker, not caught up here through every symbol's trades since
                 cur = e.state = None
-            jobs = missing + ([cur_w] if cur_w and cur is None else [])
+            jobs = missing + ([cur_w] if cur_w and cur is None and not replay else [])
             if jobs:
                 t0 = time.perf_counter()
                 built = await workers.run("chart", svp_job, m.store.path, symbol, jobs, max_rowid, tick, now)
@@ -439,7 +492,7 @@ class VpService:
                     except sqlite3.Error as ex:   # a full disk: answered all the same, worked out again next time
                         log.warning("SVP %s: sessions not kept (%s)", symbol, ex)
                 log.info("SVP %s: %d sessions worked out in %.1fs", symbol, len(jobs), time.perf_counter() - t0)
-            if cur is not None and cur.rowid < max_rowid:   # the trades stored since, in the order they came
+            if not replay and cur is not None and cur.rowid < max_rowid:   # the trades stored since, in the order they came
                 for price, size, ts, sym in m.store.db.execute(
                         "SELECT price, size, ts, symbol FROM ticks WHERE rowid>? AND rowid<=? ORDER BY rowid", (cur.rowid, max_rowid)):
                     if sym == symbol and cur.begin <= ts < cur.end:

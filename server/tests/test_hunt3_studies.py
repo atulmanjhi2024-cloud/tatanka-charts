@@ -151,7 +151,7 @@ def test_htf_ema_smooth_start_on_daily_charts_comes_from_the_charts_own_bars(spe
 REPLAY_JS = """
 const S = { symbol: 'ES', spec: SPEC, rth: false, replay: null };
 const D = DATA, out = [];
-const api = async () => D.d, applyHistory = () => {}, applyBars = () => {}, toast = () => {}, replayUi = () => {};
+const api = async () => D.d, applyHistory = () => {}, applyBars = () => {}, toast = () => {}, replayUi = () => {}, replayStudies = () => {};
 const fail = (e) => { throw e; }, replayMore = () => {};
 /*APP*/
 (async () => {

@@ -152,7 +152,7 @@ def test_history_is_not_imported_onto_the_simulator(tmp_path, monkeypatch, capsy
 SIM_QUOTE_JS = """
 const NY = { tz: 'America/New_York', rth: ['09:30', '16:00'], day: '00:00' }, TZ_EXCHANGE = 'America/Chicago';
 const S = { rth: false, replay: null, symbol: 'SPY', spec: '5m', bars: [], quotes: {}, lastBar: null };
-const wlKey = (s) => s, exch = () => S.ext.exchange, applyBars = (m) => { S.bars[S.bars.length - 1] = m.bars[0]; };
+const wlKey = (s) => s, wlIsFormula = () => false, exch = () => S.ext.exchange, applyBars = (m) => { S.bars[S.bars.length - 1] = m.bars[0]; };
 const els = {}, el = () => ({ textContent: '', className: '', parts: {}, querySelector(k) { return (this.parts[k] ||= { textContent: '' }); } });
 const $ = (k) => (els[k] ||= el()), px = (v) => (v == null ? '' : v.toFixed(2));
 /*APP*/
@@ -178,7 +178,7 @@ def test_the_simulators_quote_never_moves_a_free_data_chart():
     real quote still moves the bar; the simulator's own charts keep its quote."""
     from test_hunt_web_chart import run_app
     got = run_app(["calSpec", "specSeconds", "inputClock", "wallClock", "extWall", "tradeDate", "extBarEnd", "extQuote",
-                   "header"], SIM_QUOTE_JS)
+                   "symQuote", "header"], SIM_QUOTE_JS)
     assert got[0] == [679.5, 680.25, ""]          # the simulator's quote on Yahoo's bars: left off
     assert got[1] == [243, 243, "+1.72"]          # a real quote moves the bar, as before
     assert got[2] == [679.5, 680.25, "+438.97"]   # a chart of the simulator's own trades

@@ -338,9 +338,15 @@ bar disappears; **▶** plays (½ to 10 bars a second), **⏭** or **Shift+→**
 - Works on every bar type. Changing timeframe or symbol keeps the replay clock: 5m at 10:35 → 1m shows bars up to 10:35.
 - Any date with stored data: the server builds the bars around it (about 1,500 back and 1,500 ahead; tick, volume and
   range bars stop sooner at the end of the session) and fetches the next stretch when you play past it.
-- What replays: candles, volume, VWAP and bands, anchored VWAP, indicators, footprint, HTF EMA, Daily SMA x4, If/Then, Level Lines, drawings.
-  Daily levels, AMT, TPO, gaps and volume profiles switch off during replay because they would show later data, and come
-  back on exit.
+- What replays: candles, volume, VWAP and bands, anchored VWAP, indicators, footprint, HTF EMA, Daily SMA x4, If/Then,
+  Level Lines, drawings, and the Tatanka studies: AMT Toolkit, TPO, Gap Analysis, SVP, AAVP, PVP and the right-side
+  volume profile. Each is built as it stood at the replay bar (nothing after it counts) and moves on as replay plays.
+  - **AMT Toolkit**: the replaying chart gets its own Toolkit, loaded from the 90 days before the replay start (a few
+    seconds on the first bar and after **Jump**). It never alerts.
+  - **Daily levels** (and the Toolkit's levels): the app keeps each day's levels as they come (levels file, link or
+    pasted line; a change during the day is kept too, with when it was first seen), so replay shows the levels that day
+    had. Days from before the app kept them, or with none, show "no daily levels kept for that day". The kept levels
+    are in your backups.
 - Alerts keep running on the live market while you replay.
 
 ## Footprint

@@ -103,7 +103,7 @@ with a screenshot of them.
 
 Every day the server writes a backup of what you made (alerts and their history, the newest 10,000 fired, drawings,
 watchlists, workspaces, indicator and chart settings, Connections with their keys, notification devices, fills and
-positions) to the backups folder on the PC (`BACKUP_DIR` in `.env`), and keeps the newest 30 (about 50 KB each). Market data (ticks, 1m bars)
+positions, each day's daily levels kept for replay) to the backups folder on the PC (`BACKUP_DIR` in `.env`), and keeps the newest 30 (about 50 KB each). Market data (ticks, 1m bars)
 is left out: it is large and comes back from NinjaTrader's gap fill or a Databento import. **Connections > Backups**
 shows them, **Back up now**, and **Download** (with Login on) to keep one elsewhere. The backups hold your keys: keep the folder
 private, out of git and out of shared drives.

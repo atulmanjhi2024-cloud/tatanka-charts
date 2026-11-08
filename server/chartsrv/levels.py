@@ -64,6 +64,14 @@ class Levels:
             return None
         return level_set(sym, levels, date, src) if levels else None
 
+    def as_of(self, sym: str, at_ms: int) -> LevelSet | None:
+        """The symbol's set at a past moment (bar replay): DailyLevels.as_of's."""
+        try:
+            levels, date, src = self.m.daily.as_of(sym, at_ms)
+        except ValueError:
+            return None
+        return level_set(sym, levels, date, src) if levels else None
+
     def poll(self) -> list[str]:
         """Makes every symbol's set again: the symbols whose set changed (taken off the list: gone)."""
         changed = []

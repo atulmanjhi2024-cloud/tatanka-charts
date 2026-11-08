@@ -22,6 +22,7 @@ from .studies import RthClock
 EXTRA_SESSIONS = 3      # loaded beyond LetterDays + PolylineDays, so the oldest drawn day is complete
 DAILY_DAYS = 300        # calendar days of daily bars behind the first request, so the ATR(10) has settled
 DAILY_TTL_S = 900       # reread daily bars this often, so a backfill shows up without a restart
+DAILY_SETTLED = 200     # bar replay: the kept daily bars do if they start this many calendar days before its day
 
 
 def session_end(start_ms: int) -> int:
@@ -72,6 +73,47 @@ def chart_bars(minute_bars, minutes: int, rth: tuple[str, str] | None = None) ->
     return out
 
 
+class BarBuilder:
+    """chart_bars as the minutes come, a minute again as it forms: each minute's chart bar (its index, open, close time,
+    open, high, low, close so far) as chart_bars has it, or None (outside an RTH chart's hours, or a minute already passed)."""
+
+    def __init__(self, minutes: int, rth: tuple[str, str] | None = None):
+        self.period = minutes * 60_000
+        self.clock = SessionClock()
+        self.hours = RthClock(rth) if rth else None
+        self.day, self.window, self.s_end = None, (0, 0), (0, 0)
+        self.index, self.key, self.close = -1, None, 0
+        self.mins: dict[int, tuple] = {}   # the forming bar's minutes, by their time
+        self.last_t: int | None = None
+
+    def add(self, m) -> tuple | None:
+        if self.hours:
+            d = self.hours.day(m.t)
+            if d is None:
+                return None
+            if d != self.day:
+                self.day, self.window = d, self.hours.window(sessions.to_ct(m.t))
+            s = self.window[0]
+        else:
+            s = self.clock.locate(m.t)
+        if self.last_t is not None and m.t < self.last_t:
+            return None                     # a late print for a minute already passed
+        self.last_t = m.t
+        k = s + (m.t - s) // self.period * self.period
+        if k != self.key:
+            if self.key is not None and k < self.key:
+                return None
+            if self.s_end[0] != s:
+                self.s_end = (s, self.window[1] if self.hours else session_end(s))
+            self.index += 1
+            self.key, self.close, self.mins = k, min(k + self.period, self.s_end[1]), {}
+        self.mins[m.t] = (m.o, m.h, m.l, m.c)
+        first = self.mins[min(self.mins)]
+        last = self.mins[max(self.mins)]
+        return (self.index, k, self.close, first[0], max(v[1] for v in self.mins.values()),
+                min(v[2] for v in self.mins.values()), last[3])
+
+
 class Daily:
     """Completed daily bars (one per Globex session, keyed by its open; rth: one per regular session, of its regular
     hours only, keyed by its RTH open) and NinjaTrader's ATR(10) over them."""
@@ -83,6 +125,7 @@ class Daily:
         self.hlc: list[list[float]] = []
         self.atr = tpo.NtAtr()
         self.through = 0       # sessions before this open are complete and added
+        self.since = 0         # the minutes were read from here on (what is stored from then)
         self.loaded = time.monotonic()
 
     def add_minutes(self, minute_bars, through: int):
@@ -186,28 +229,40 @@ class TpoService:
         self.m = market
         self.lock = threading.Lock()
         self.daily: dict[str, dict[bool, Daily]] = {}   # symbol -> its daily bars: all hours' (False), the RTH's (True)
+        self.replay_daily: dict[tuple[str, bool], Daily] = {}   # bar replay's, where the kept ones start too late
 
-    async def get(self, sym: str, minutes: int, s: dict, rth: bool = False) -> dict:
-        """rth: an RTH chart's profile (ignored for an instrument without regular hours)."""
-        split, live = self.m.recent_minutes(sym)
-        now = int(time.time() * 1000)
+    async def get(self, sym: str, minutes: int, s: dict, rth: bool = False, until: int | None = None) -> dict:
+        """rth: an RTH chart's profile (ignored for an instrument without regular hours). until: bar replay's clock,
+        the profile as it stood then (the bars closed by then)."""
+        split, live = self.m.recent_minutes(sym) if until is None else self.m.recent_minutes(sym, until)
+        # replay: the clock is the replay's minute (split can be older: the newest minute held, the market quiet since)
+        now = int(time.time() * 1000) if until is None else min(until // 60_000 * 60_000, int(time.time() * 1000))
         inst = self.m.instruments[sym]
         hours = inst.rth if rth else None
-        return await asyncio.to_thread(self._compute, sym, inst.tick_size, minutes, s, split, live, now, hours)
+        return await asyncio.to_thread(self._compute, sym, inst.tick_size, minutes, s, split, live, now, hours, until is not None)
 
-    def _compute(self, sym, tick, minutes, s, split, live, now, rth=None):
+    def _compute(self, sym, tick, minutes, s, split, live, now, rth=None, replay=False):
         cur = session_start(now)
         start = cur
         for _ in range(s["LetterDays"] + s["PolylineDays"] + EXTRA_SESSIONS):
             start = previous_session_start(start)
         db = self.m.store.path
-        daily = self.daily_for(sym, cur, bool(rth))
+        daily = self.daily_for(sym, cur, bool(rth), replay)
         eng, open_of = run(s, tick, minutes, chain(iter_bars_1m(db, sym, start, split), live), daily, now, rth=rth)
         return payload(eng, open_of, minutes)
 
-    def daily_for(self, sym: str, cur: int, rth: bool = False) -> Daily:
+    def forget(self, sym: str):
+        """The symbol's history changed (a gap fill): its daily bars are read again, bar replay's too."""
+        with self.lock:
+            self.daily.pop(sym, None)
+            for k in [k for k in self.replay_daily if k[0] == sym]:
+                del self.replay_daily[k]
+
+    def daily_for(self, sym: str, cur: int, rth: bool = False, replay: bool = False) -> Daily:
         """The symbol's completed daily bars before the session opening at `cur` (blocking: call in a thread); rth:
-        those of its regular hours, for an RTH chart."""
+        those of its regular hours, for an RTH chart. replay: `cur` is in the past (bar replay): the kept bars if they
+        go back far enough before it for the ATR to have settled as it had then, else ones read for it (only the
+        bars before it count: Daily.before)."""
         db = self.m.store.path
         calendar = self.m.instruments[sym].calendar
         hours = self.m.instruments[sym].rth if rth else None
@@ -215,9 +270,23 @@ class TpoService:
         with self.lock:
             kept = self.daily.setdefault(sym, {})
             daily = kept.get(bool(hours))
-            if daily is None or time.monotonic() - daily.loaded > DAILY_TTL_S:
+            fresh = lambda d: d is not None and time.monotonic() - d.loaded <= DAILY_TTL_S   # noqa: E731
+            if replay:   # read from far enough before it (what was stored from then: a short history is all there is)
+                settled = cut - DAILY_SETTLED * 86_400_000
+                if fresh(daily) and daily.since <= settled and daily.through >= cut:
+                    return daily
+                daily = self.replay_daily.get((sym, bool(hours)))
+                if not fresh(daily) or daily.since > settled or daily.since < settled - 150 * 86_400_000:
+                    daily = self.replay_daily[(sym, bool(hours))] = Daily(calendar, hours)
+                    daily.since = cut - DAILY_DAYS * 86_400_000
+                    daily.add_minutes(iter_bars_1m(db, sym, daily.since, cut), cut)
+                elif daily.through < cut:
+                    daily.add_minutes(iter_bars_1m(db, sym, daily.through, cut), cut)
+                return daily
+            if not fresh(daily):
                 daily = kept[bool(hours)] = Daily(calendar, hours)
-                daily.add_minutes(iter_bars_1m(db, sym, cur - DAILY_DAYS * 86_400_000, cut), cut)
+                daily.since = cur - DAILY_DAYS * 86_400_000
+                daily.add_minutes(iter_bars_1m(db, sym, daily.since, cut), cut)
             elif daily.through < cut:
                 daily.add_minutes(iter_bars_1m(db, sym, daily.through, cut), cut)
             return daily

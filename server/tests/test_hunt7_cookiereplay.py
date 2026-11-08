@@ -186,7 +186,7 @@ def answers(db, spec, clocks, now, rth_only):
 EVENING_JS = BARS_JS + """
 const REPLAY = __REPLAY__, log = [];
 const api = async (method, path, body) => (method === 'GET' ? JSON.parse(JSON.stringify(REPLAY[path])) : answer(body));
-const fpSchedule = () => {}, replayUi = () => {}, fail = (e) => { throw e; }, toast = (m) => log.push({ toast: m });
+const fpSchedule = () => {}, replayUi = () => {}, replayStudies = () => {}, fail = (e) => { throw e; }, toast = (m) => log.push({ toast: m });
 function applyHistory(m) { S.kind = m.kind; S.bars = m.bars.slice(); S.fp.clear(); log.push({ history: m.bars.length }); }
 /*APP*/
 (async () => {
@@ -233,7 +233,7 @@ TAP_JS = """
 const S = { symbol: 'ES', spec: '500v', rth: false, bars: [], replay: null };
 const REPLAY = __REPLAY__, CLOCKS = __CLOCKS__, out = {};
 const api = async (m, path) => JSON.parse(JSON.stringify(REPLAY[path]));
-const replayUi = () => {}, replayPause = () => {}, fail = (e) => { throw e; }, toast = () => {};
+const replayUi = () => {}, replayStudies = () => {}, replayPause = () => {}, fail = (e) => { throw e; }, toast = () => {};
 function applyHistory(m) { S.bars = m.bars.slice(); }
 /*APP*/
 (async () => {

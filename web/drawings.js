@@ -708,7 +708,8 @@ function createDrawings(env) {
   }
 
   // ---- saving, undo, server sync -----------------------------------------------------------------------
-  const path = (id, sym = env.symbol()) => `/api/drawings/${encodeURIComponent(sym)}${id ? `/${id}` : ''}`;
+  // a formula's / as ~ (no symbol has one): an encoded / (%2F) splits the server's path all the same
+  const path = (id, sym = env.symbol()) => `/api/drawings/${encodeURIComponent(sym.replaceAll('/', '~'))}${id ? `/${id}` : ''}`;
   async function save(d, before, sym = env.symbol()) {   // sym: a typed change saved as another symbol opens
     D.list.set(d.id, d);
     if (D.selected === d.id && !shown(d)) select(null);   // just hidden (the object tree's eye): no longer selected

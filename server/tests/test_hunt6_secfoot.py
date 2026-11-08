@@ -152,7 +152,7 @@ const S = { st: { fp: 'bidask' }, ext: null, symbol: 'ES', spec: '500v', rth: fa
   replay: { at: old[4].t + 1, data: old, idx: 5, kind: 'volume', period: 0, days: false, nextAt: null, endAt: null, playing: false,
     timer: 0, hidden: {}, req: 1 },
   subId: 1, cs: {}, vp: {}, seqTime: new Map(), dsmaLive: new Map(), holidays: {} };
-const el = { classList: { add() {}, toggle() {} }, setAttribute() {} }, $ = () => el;
+const el = { classList: { add() {}, toggle() {} }, setAttribute() {} }, $ = () => el, drawLevels = () => {}, replayClearStudies = () => {};
 const chart = { timeScale: () => ({ getVisibleLogicalRange: () => ({ from: 0, to: S.bars.length + 3 }),
   options: () => ({ barSpacing: 50, rightOffset: 0 }), setVisibleLogicalRange() {} }) };
 const FP_MIN_SPACING = 40, fpPrim = { update() {} }, isTime = () => S.kind === 'time', TK_MULTI = false, extTimer = 0, extStop = null;

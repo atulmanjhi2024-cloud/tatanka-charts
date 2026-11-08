@@ -186,7 +186,7 @@ const TK_MULTI = false, TZ_EXCHANGE = 'America/Chicago', WL_FUT = /^([A-Z0-9]+)1
 const NY = { tz: 'America/New_York', rth: ['09:30', '16:00'], day: '00:00' }, CME = { tz: 'America/Chicago', rth: null, day: '17:00' };
 const local = { set: noop }, ax = { pick: '' }, drawings = { state: {}, load: noop, select: noop, update: noop };
 const toast = (t) => toasts.push(t), send = (m) => sent.push(m), applyBars = (m) => merged.push(...m.bars);
-const isExtSym = (s) => !S.instruments[s], chartSym = (s) => s, wlKey = (s) => s, specLabel = (s) => s, specOk = () => true;
+const isExtSym = (s) => !S.instruments[s], chartSym = (s) => s, wlKey = (s) => s, wlIsFormula = () => false, specLabel = (s) => s, specOk = () => true;
 const extSource = () => 'yahoo', extSpecFor = (s) => s, extSeries = () => false, calSpec = () => false, bigOn = () => false;
 const exch = () => (S.ext ? S.ext.exchange || NY : CME), inst = () => ({}), indFmt = () => '', toPoints = (b) => [{ time: b.t, close: b.c }, {}];
 const px = (p) => (p == null ? '–' : Number(p).toFixed(2)), viewApply = () => false, viewSnap = () => null, ownTab = () => null;
@@ -249,7 +249,7 @@ process.exit(0);
 
 @needs_node
 def test_switching_nq_to_qqq_never_shows_nqs_bars_or_price():
-    out = run_app(["api", "viewKey", "header", "legend", "applyHistory", "barsClear", "loadNote", "extTimer", "EXT_WAIT_MS", "extEvery",
+    out = run_app(["api", "viewKey", "symQuote", "header", "legend", "applyHistory", "barsClear", "loadNote", "extTimer", "EXT_WAIT_MS", "extEvery",
                    "extLoad", "extMerge", "subscribe", "setSymbol", "setSpec", "setRth", "openTab"], PAGE_JS)
     assert out["nq"] == {"bars": 6, "candles": 6, "last": "26907.00", "chg": "+107.00", "legend": "NQ 4h", "msg": ""}
     nothing = {"bars": 0, "candles": 0, "last": "–", "chg": ""}

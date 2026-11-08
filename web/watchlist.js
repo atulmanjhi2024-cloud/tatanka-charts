@@ -116,10 +116,12 @@ function createWatchlist(env) {
     return W.doc?.names?.[b] || (c && env.instruments()[c]?.name) || '';
   };
   // The chart symbol: a live chart's root for "ES1!" (or "ES"); any other single symbol charts from free data (Yahoo,
-  // FRED); a formula doesn't chart.
+  // FRED); a formula from its parts' bars ("VIXM/VIXY").
   function chartFor(sym) {
     const b = wlBare(sym), k = wlRoot(b);
-    if (wlIsFormula(b) || wlIsSection(sym) || wlTokens(b).length !== 1) return null;
+    if (wlIsSection(sym) || !wlTokens(b).length) return null;
+    if (wlIsFormula(b)) return env.formulaChart ? env.formulaChart(b) : b;   // as the chart takes it (ES/NQ: ES1!/NQ1!)
+    if (wlTokens(b).length !== 1) return null;
     return env.instruments()[k] ? k : b;
   }
   const quoteKey = (t) => wlKey(t, env.instruments());   // its quote's key, as the server has it

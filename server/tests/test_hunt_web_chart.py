@@ -156,7 +156,7 @@ const api = async (method, path, body) => {
 
 @needs_node
 def test_the_chart_asks_for_its_session_footprint_and_profile():
-    out = run_app(["fpBusy", "fpFetch", "rangeTimer", "fetchRange"], FP_JS + """
+    out = run_app(["fpBusy", "fpFetch", "rangeTimer", "studyView", "fetchRange"], FP_JS + """
 S.bars = [1, 2, 3, 4].map((k) => ({ t: Date.now() - (5 - k) * 300000, seq: k, v: 1 }));
 (async () => {
   await fpFetch();
@@ -195,7 +195,7 @@ def test_footprint_of_bars_sharing_an_open_time(app_client):
 
 @needs_node
 def test_the_chart_keeps_a_footprint_per_bar_also_when_bars_share_a_time():
-    out = run_app(["fpBusy", "fpFetch", "rangeTimer", "fetchRange"], FP_JS + """
+    out = run_app(["fpBusy", "fpFetch", "rangeTimer", "studyView", "fetchRange"], FP_JS + """
 const t = Date.now() - 60000;
 (async () => {
   S.spec = '500v';

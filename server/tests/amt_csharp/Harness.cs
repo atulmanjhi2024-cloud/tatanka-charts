@@ -23,12 +23,26 @@ public static class Harness
         if (args.Length > 2) foreach (var kv in File.ReadAllLines(args[2])) { var p = kv.Split('='); var fld = typeof(Settings).GetField(p[0]); fld.SetValue(s, Convert.ChangeType(p[1], fld.FieldType, Inv)); }
         Engine e = null; DailyHistory daily = new DailyHistory(s.daily_atr_length);
         var tracker = new LevelAlertTracker(); Frame last = null;
+        var trades = new Dictionary<string, List<KeyValuePair<double, double>>>();
+        var minuteTrades = new Dictionary<DateTime, List<KeyValuePair<double, double>>>();
         for (int i = 0; i < lines.Length; i++)
         {
             string[] p = lines[i].Split('|');
             switch (p[0])
             {
-                case "E": e = new Engine(s, p[1], PD(p[2]), PD(p[3]), int.Parse(p[4])); break;
+                case "E":
+                    e = new Engine(s, p[1], PD(p[2]), PD(p[3]), int.Parse(p[4]));
+                    e.TradeValue = (first, end, vol) => { List<KeyValuePair<double, double>> r; return trades.TryGetValue(first.ToString("yyyy-MM-dd", Inv), out r) ? r : null; };
+                    e.MinuteTrades = (start, vol) => { List<KeyValuePair<double, double>> r; return minuteTrades.TryGetValue(start, out r) ? r : null; };
+                    break;
+                case "Q":
+                    var mrows = new List<KeyValuePair<double, double>>();
+                    if (p[2].Length > 0) foreach (var x in p[2].Split(';')) { var q = x.Split(','); mrows.Add(new KeyValuePair<double, double>(PD(q[0]), PD(q[1]))); }
+                    minuteTrades[PT(p[1])] = mrows; break;
+                case "T":
+                    var rows = new List<KeyValuePair<double, double>>();
+                    if (p[2].Length > 0) foreach (var x in p[2].Split(';')) { var q = x.Split(','); rows.Add(new KeyValuePair<double, double>(PD(q[0]), PD(q[1]))); }
+                    trades[p[1]] = rows; break;
                 case "L":
                     var lv = new List<Level>();
                     if (p.Length > 1 && p[1].Length > 0) foreach (var x in p[1].Split(';')) { var q = x.Split(','); lv.Add(new Level { Name = q[0], Price = PD(q[1]), Kind = int.Parse(q[2]) }); }

@@ -41,6 +41,10 @@ CREATE TABLE IF NOT EXISTS positions (
 CREATE TABLE IF NOT EXISTS drawings (
     symbol TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY (symbol, id)
 ) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS levels_kept (
+    symbol TEXT NOT NULL, date TEXT NOT NULL, seen INTEGER NOT NULL, origin TEXT NOT NULL, source TEXT NOT NULL,
+    levels TEXT NOT NULL, PRIMARY KEY (symbol, date, seen)
+) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS alert_events (
     id INTEGER PRIMARY KEY, alert_id INTEGER, symbol TEXT, ts INTEGER, price REAL, message TEXT,
     delivered TEXT NOT NULL DEFAULT ''

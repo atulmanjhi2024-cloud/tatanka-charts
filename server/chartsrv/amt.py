@@ -2,7 +2,7 @@
 # This Source Code Form is subject to the Mozilla Public License, v. 2.0.
 # If a copy of the MPL was not distributed with this file, obtain one at https://mozilla.org/MPL/2.0/.
 """Tatanka AMT Toolkit calculation engine, ported from the NinjaTrader 8 source
-(tatankatrading/tatanka-indicators, ninjatrader/TatankaAmtToolkit.cs, v1.2.0).
+(tatankatrading/tatanka-indicators, ninjatrader/TatankaAmtToolkit.cs, v1.2.1).
 
 The Engine mirrors the C# Engine statement for statement and keeps its names, so the two can be read side
 by side: CT sessions, profile row rules, prior-day/month value, initial balance, overnight inventory and
@@ -19,7 +19,7 @@ from functools import lru_cache
 
 from . import sessions
 
-VERSION = "1.2.0"
+VERSION = "1.2.2"
 NAN = float("nan")
 DMIN = datetime.min
 
@@ -320,6 +320,11 @@ def valid(x) -> bool:
     return x is not None and math.isfinite(x)
 
 
+def _hours(session: str) -> str:
+    """A session's hours ("0830-1500:23456" -> "0830-1500")."""
+    return (session or "").split(":")[0].strip()
+
+
 def bin_(x: float, step: float) -> int:
     """Pine rounds ties toward positive infinity, unlike banker's rounding."""
     return math.floor(x / step + .5)
@@ -417,6 +422,15 @@ def price_str(price: float, root: str, tick: float) -> str:
     return f"{snap:.{decimals}f}"
 
 
+def width_str(width: float, tick: float) -> str:
+    """A zone's half-width at the instrument's decimals, not snapped to a tick (an ATR zone's ±1.117 read ±1.00)."""
+    decimals, q = 0, tick
+    while decimals < 8 and abs(q - round(q)) > 1e-8:
+        q *= 10
+        decimals += 1
+    return _fmt(width, min(4, decimals))
+
+
 # --- data types -----------------------------------------------------------------------------------------
 class Bar:
     __slots__ = ("Start", "End", "Index", "Open", "High", "Low", "Close", "Volume")
@@ -450,6 +464,32 @@ class Profile:
         p.Step, p.Limit, p.PrunedRows = self.Step, self.Limit, self.PrunedRows
         p.Rows, p.insertion = dict(self.Rows), deque(self.insertion)
         return p
+
+    @staticmethod
+    def from_prices(step: float, prices, limit: int = 1) -> "Profile":
+        """A tick volume profile (FromPrices): each traded price's volume in its own row at `step`, lowest first."""
+        p = Profile(step, limit)
+        for price, volume in sorted(prices):
+            k = bin_(price, step)
+            if k not in p.Rows:
+                p.Rows[k] = 0.0
+                p.insertion.append(k)
+            p.Rows[k] += volume
+        return p
+
+    def AddPrices(self, prices):
+        """A minute's trades: each price's volume in its row (a tick volume profile, one minute at a time)."""
+        rows = self.Rows
+        for price, volume in sorted(prices, key=lambda x: x[0]):
+            k = bin_(price, self.Step)
+            v = rows.get(k)
+            if v is None:
+                while len(rows) >= self.Limit:
+                    del rows[self.insertion.popleft()]
+                    self.PrunedRows += 1
+                self.insertion.append(k)
+                v = 0.0
+            rows[k] = v + volume
 
     def Add(self, b: Bar, capped: bool):
         lo, hi = bin_(b.Low, self.Step), bin_(b.High, self.Step)
@@ -773,6 +813,8 @@ class Engine:
         self.nd = Profile(self.NakedStep(self.rowMult), lim)
         self.nw = Profile(self.NakedStep(self.rowMult), lim)
         self.nm = Profile(self.NakedStep(self.rowMult), lim)
+        self.mm = Profile(self.RowStep(self.rowMult), lim)   # the month's minutes: the prior month's value when complete
+        self.pmMinutes = DMIN                                # the month whose value came from them
         self.spStep = self.BlockStep(self.rowMult)
         self.Levels: list[Level] = parse_levels(s.lvl_text)[0]
         self.prevDay, self.prevMonth = ProfileStats(), ProfileStats()
@@ -786,10 +828,20 @@ class Engine:
         self.previous: Bar | None = None
         self.td = self.week = self.month = self.mainKey = self.mainStart = self.weekStart = self.monthStart = DMIN
         self.dayStart = self.rthStart = self.ibStart = self.settleStart = self.spikeStart = self.macroKey = DMIN
+        # Every pd line switches to the session that just closed at its close (v1.2.2): pdPOC/pdVAH/pdVAL and the drawn
+        # profile from its trades at the value area's close (valueRolled until the next trade date), pdHigh/pdLow/pdOpen
+        # at the pd session's. Lines drawn from then (vaRolledAt, pdRolledAt) to the next trade date's open.
+        self.valueRolled = False
+        self.vaRolledAt = self.pdRolledAt = DMIN
+        # The trade date's own reference: the value in force at its open (the 80% Rule, OPEN, day type) and the pd high
+        # and low its open was measured against; the close's roll leaves them as they were.
+        self.dayVa = ProfileStats()
+        self.openH = self.openL = NAN
         for n in ("tradeH", "tradeL", "weekH", "weekL", "monthH", "monthL", "pdH", "pdL", "pdO", "pwH", "pwL",
                   "pmH", "pmL", "weekOpen", "rthH", "rthL", "rthO", "rthPreviousOpen", "ibH", "ibL", "ovnH", "ovnL",
                   "settle", "spike", "preH", "preL", "dayH", "dayL", "lastMacroClose"):
             setattr(self, n, NAN)
+        self.tpoH = self.tpoL = NAN   # the TPO session's high and low: its Poor High and Poor Low
         self.ibWorkH = self.ibWorkL = self.frozenH = self.frozenL = self.tableH = self.tableL = 0.0
         self.vSrc = self.vVol = self.contextHlc = self.contextVol = 0.0
         self.above = self.below = self.total = self.otfUp = self.otfDn = 0
@@ -803,6 +855,13 @@ class Engine:
         # NinjaTrader original (each minute's volume spread over its rows). vaFirst/vaEnd: that window.
         self.TradeValue = None
         self.vaFirst = self.vaEnd = DMIN
+        self.dayTicks = None          # the prior day's trades [(price, volume)] when its value came from them ...
+        self.dayTicksFirst = DMIN     # ... and its window's first minute
+        self.mainStats = None         # the main profile's value area when it is drawn from those trades (TickProfile)
+        # The current Session or Weekly profile from its trades (v1.2.2): MinuteTrades(minute start, its 1-minute volume)
+        # gives that minute's [(price, volume)] when all of its trades are known, or None and its 1-minute bar is spread
+        # over its range as before. Monthly and Yearly profiles, and older periods, use 1-minute bars.
+        self.MinuteTrades = None
         self.inventoryFrozen, self.dayType, self.pivotBias = "---", "DEVELOPING", "---"
         self.dayColor = GRAY
 
@@ -811,11 +870,14 @@ class Engine:
         return max(self.Step * mult, self.S.mvp_row_size)
 
     def ValueStep(self, mult):
-        return max(self.S.mvp_row_size, self.Step * mult) if mult > 1 else self.S.mvp_row_size
+        """The prior day's and month's rows: the drawn profile's (GC's 0.25 Row Size is 0.5 rows there: on 0.1 ticks)."""
+        return self.RowStep(mult)
 
     def NakedStep(self, mult):
+        """nPOC rows: the drawn profile's (CL's 0.05 auto tick drew a weekly nPOC off the weekly profile's POC), or the
+        resolution set."""
         S = self.S
-        return (self.Step if S.amt_vauto else S.amt_res_val if S.amt_vres else self.Step) * mult
+        return S.amt_res_val * mult if not S.amt_vauto and S.amt_vres else self.RowStep(mult)
 
     def BlockStep(self, mult):
         return self.Step * max(1, self.S.sp_ticks_per_block) * mult
@@ -824,22 +886,38 @@ class Engine:
         """The day just ended: from its trades at one-tick rows when they are worked out (pdPOC, pdVAH, pdVAL then match
         a tick volume profile and the SVP), else from its minutes."""
         rows = self.TradeValue(self.vaFirst, self.vaEnd) if self.TradeValue and self.vaFirst != DMIN else None
+        self.dayTicks = None
         if not rows:
             return self.day.Stats(self.S.cc_va_pct)
-        step = self.Tick if self.Tick > 0 else self.Step
-        p = Profile(step, 1)
-        for price, volume in sorted(rows):
-            k = bin_(price, step)
-            if k not in p.Rows:
-                p.Rows[k] = 0.0
-                p.insertion.append(k)
-            p.Rows[k] += volume
-        return p.Stats(self.S.cc_va_pct)
+        self.dayTicks, self.dayTicksFirst = rows, self.vaFirst
+        value = Profile.from_prices(self.Tick if self.Tick > 0 else self.Step, rows).Stats(self.S.cc_va_pct)
+        self.TickProfile()
+        return value
+
+    def TickProfile(self):
+        """The prior day's drawn profile from the same trades as its pdPOC/pdVAH/pdVAL (v1.2.1), at one-tick rows as the
+        lines are worked out: its tallest row is pdPOC and its shaded area ends at pdVAH and pdVAL (at the same Value
+        Area %), whatever the Row Scale (NQ's 5-tick rows, CL's 0.25 floor). Only a Session profile on the value area's
+        own hours is that day's."""
+        S = self.S
+        if not self.dayTicks or S.mvp_tf_mode != "Session" or _hours(S.mvp_sess_time) != _hours(S.cc_sess_def):
+            return
+        tick = self.Tick if self.Tick > 0 else self.Step
+        if self.main.Rows and self.mainStart.date() == self.dayTicksFirst.date():
+            self.main = Profile.from_prices(tick, self.dayTicks, self.main.Limit)
+            self.mainStats = self.main.Stats(S.mvp_val_pct)
+            return
+        for i in range(len(self.profiles) - 1, -1, -1):
+            p = self.profiles[i]
+            if p.Start.date() == self.dayTicksFirst.date():
+                ticks = Profile.from_prices(tick, self.dayTicks, p.Profile.Limit)
+                self.profiles[i] = PastProfile(ticks, ticks.Stats(S.mvp_val_pct), p.Start, p.End, p.EndIndex)
+                return
 
     def Clone(self) -> "Engine":
         e = Engine.__new__(Engine)
         e.__dict__.update(self.__dict__)
-        for n in ("day", "main", "macro", "nd", "nw", "nm"):
+        for n in ("day", "main", "macro", "nd", "nw", "nm", "mm"):
             setattr(e, n, getattr(self, n).Clone())
         e.Levels = [x.Clone() for x in self.Levels]
         e.naked, e.single, e.poor, e.profiles = list(self.naked), list(self.single), list(self.poor), list(self.profiles)
@@ -941,7 +1019,7 @@ class Engine:
 
     def RollMacro(self, key, lastPrice):
         if self.macroKey != key:
-            if self.macroKey != DMIN and self.macroFull:
+            if self.macroKey != DMIN and self.macroFull and self.macroKey != self.pmMinutes:
                 self.prevMonth = self.macro.Stats(self.S.mvp_val_pct)
             self.macroFull = self.macroKey != DMIN
             self.macro = Profile(self.ValueStep(row_mult(self.S.row_scale, lastPrice, self.Step)), self.S.MaxProfileRows)
@@ -968,9 +1046,16 @@ class Engine:
         spikeWindow = self.Ins(b.Start, S.spikeTimeRange)
         spSession = self.Ins(b.Start, S.sp_rth_session)
         lim = S.MaxProfileRows
+        # The value area's session just closed (or a new trade date began on an RTH-only chart): the prior day's value
+        # and its drawn profile are the closed session's from here, from its trades when they are worked out (v1.2.2).
+        if self.Was(S.cc_sess_def) and (newDay or not self.Ins(b.Start, S.cc_sess_def)) and self.dayFull and self.day.Rows:
+            self.prevDay = self.DayValue()
+            self.valueRolled, self.vaRolledAt = True, b.Start
         if newDay:
-            if self.td != DMIN and self.dayFull and self.day.Rows:
+            if not self.valueRolled and self.td != DMIN and self.dayFull and self.day.Rows:
                 self.prevDay = self.DayValue()
+            self.valueRolled = False
+            self.dayVa = self.prevDay
             if not S.pd_use_rth and self.td != DMIN:
                 self.pdH, self.pdL = self.tradeH, self.tradeL
             self.NakedRoll(self.nd, "Daily", self.dayFull, S.npoc_d_show, S.npoc_w_d, b.Start)
@@ -999,10 +1084,13 @@ class Engine:
         if newMonth:
             if self.monthFull:
                 self.pmH, self.pmL = self.monthH, self.monthL
+                if self.mm.Rows:   # a whole month of minutes: its value as its profile and nPOC have it, not the 30-minute bars'
+                    self.prevMonth, self.pmMinutes = self.mm.Stats(S.mvp_val_pct), self.month
             self.NakedRoll(self.nm, "Monthly", self.monthFull, S.npoc_m_show, S.npoc_w_m, b.Start)
             self.monthFull = self.month != DMIN
             self.month, self.monthStart, self.monthH, self.monthL = m, b.Start, b.High, b.Low
             self.nm = Profile(self.NakedStep(self.rowMult), lim)
+            self.mm = Profile(self.RowStep(self.rowMult), lim)
         else:
             self.monthH, self.monthL = _max(self.monthH, b.High), _min(self.monthL, b.Low)
         # Naked POC profiles use the 1-minute bars inside this chart bar; the chart bar is the fallback.
@@ -1020,20 +1108,22 @@ class Engine:
                 if S.npoc_alert:
                     self.Event(f, "nPOC" + n.Kind + self.Price(n.Price), n.Kind + " nPOC Touch @ " + self.Price(n.Price))
                 del self.naked[i]
-        if ovn and S.amt_enable:
+        if ovn:   # kept with OVN High/Low off too: the day type reads them (they're drawn and alert only when on)
             if not self.Was(S.amt_sess) or newDay:
                 self.ovnH, self.ovnL = b.High, b.Low
             else:
                 self.ovnH, self.ovnL = _max(self.ovnH, b.High), _min(self.ovnL, b.Low)
+        if self.Was(S.pd_sess_time) and (newDay or not pdSession):
+            # the pd session just closed: pdHigh, pdLow and pdOpen are its own from here, as pdPOC/pdVAH/pdVAL are the
+            # value area's at its close (the same 15:00 by default: every pd line switches together)
+            if S.pd_use_rth:
+                self.pdH, self.pdL = self.rthH, self.rthL
+            self.pdO, self.pdRolledAt = self.rthPreviousOpen, b.Start
         if pdSession:
-            if not self.Was(S.pd_sess_time):
+            if not self.Was(S.pd_sess_time) or newDay:
                 self.rthH, self.rthL, self.rthPreviousOpen = b.High, b.Low, b.Open
             else:
                 self.rthH, self.rthL = _max(self.rthH, b.High), _min(self.rthL, b.Low)
-        if not pdSession and self.Was(S.pd_sess_time):
-            if S.pd_use_rth:
-                self.pdH, self.pdL = self.rthH, self.rthL
-            self.pdO = self.rthPreviousOpen
         if daily is not None:
             if not valid(self.pdH):
                 self.pdH = daily.High
@@ -1057,6 +1147,8 @@ class Engine:
             self.trap = True
         if self.trap and b.Low <= self.settle and b.High >= self.settle:
             self.trap, self.resolved = False, True
+        if globex:   # OVN INVENTORY as the count stood at its last overnight bar (it read 08:15's, before the trap resolved)
+            self.inventoryFrozen = self.Inventory()
         if S.inv_alert and S.inv_enable and self.trap and not self.trapAlert and inv_end <= mb < inv_end + 30:
             self.Event(f, "Inventory", "Inventory Trap Active @ " + self.Price(self.settle))
             self.trapAlert = True
@@ -1066,21 +1158,21 @@ class Engine:
                 self.ibStart, self.ibWorkH, self.ibWorkL = b.Start, b.High, b.Low
             else:
                 self.ibWorkH, self.ibWorkL = max(self.ibWorkH, b.High), min(self.ibWorkL, b.Low)
-        if not ib and self.Was(S.ib_session) and S.ib_enable:
+        if not ib and self.Was(S.ib_session):   # with Enable IB off too: the day type reads it (drawn only when on)
             self.ibH, self.ibL = self.ibWorkH, self.ibWorkL
-        if track and (not self.Was(S.context_session) or newDay):
-            self.inventoryFrozen = self.Inventory()
-        if self.Ins(b.Start, S.cc_sess_def) and (not self.Was(S.cc_sess_def) or newDay):
-            self.rthO = b.Open
         if rth and (not self.Was(self.RthSession) or newDay):
             self.rthStart, self.preH, self.preL, self.dayH, self.dayL = b.Start, NAN, NAN, b.High, b.Low
             self.auction, self.otfUp, self.otfDn = False, 0, 0
-            openPrice = self.rthO if valid(self.rthO) else b.Open
             self.isTrapDay = S.inv_enable and imbalance
-            self.gapUp = valid(self.pdH) and openPrice > self.pdH
-            self.gapDown = valid(self.pdL) and openPrice < self.pdL
-            self.outsideAbove = valid(self.prevDay.Vah) and openPrice > self.prevDay.Vah
-            self.outsideBelow = valid(self.prevDay.Val) and openPrice < self.prevDay.Val
+            if not valid(self.rthO):   # the value area's session opens later: its open decides these
+                self.gapUp = self.gapDown = self.outsideAbove = self.outsideBelow = False
+        if self.Ins(b.Start, S.cc_sess_def) and (not self.Was(S.cc_sess_def) or newDay):
+            # the open OPEN, the gap test and the 80% Rule all measure ("RTH Session for VA"'s first bar)
+            self.rthO, self.openH, self.openL = b.Open, self.pdH, self.pdL
+            self.gapUp = valid(self.pdH) and b.Open > self.pdH
+            self.gapDown = valid(self.pdL) and b.Open < self.pdL
+            self.outsideAbove = valid(self.dayVa.Vah) and b.Open > self.dayVa.Vah
+            self.outsideBelow = valid(self.dayVa.Val) and b.Open < self.dayVa.Val
         if rth and not spikeWindow:
             self.preH, self.preL = _max(self.preH, b.High), _min(self.preL, b.Low)
         if spikeWindow and not self.Was(S.spikeTimeRange):
@@ -1109,21 +1201,31 @@ class Engine:
         mainWindow = S.mvp_tf_mode != "Session" or self.Ins(b.Start, S.mvp_sess_time)
         if mainWindow and self.mainKey != pk:
             if self.main.Rows:
-                self.profiles.append(PastProfile(self.main, self.main.Stats(S.mvp_val_pct), self.mainStart, b.Start, b.Index))
+                self.profiles.append(PastProfile(self.main, self.mainStats if self.mainStats is not None else self.main.Stats(S.mvp_val_pct), self.mainStart,
+                                                 b.Start, b.Index))
                 if len(self.profiles) > 12:
                     del self.profiles[0]
             self.main = Profile(self.RowStep(self.rowMult), lim)
-            self.mainKey, self.mainStart = pk, b.Start
+            self.mainKey, self.mainStart, self.mainStats = pk, b.Start, None
         # Prior-day value is built from the RTH session for VA only (08:30-15:00 CT by default).
+        trade_rows = self.MinuteTrades is not None and S.mvp_tf_mode in ("Session", "Weekly") and bool(subbars)
         for q in self.Aggregate(raw, calc):
-            if mainWindow:
+            self.mm.Add(q, True)
+            if mainWindow and not trade_rows:
                 self.main.Add(q, True)
             if S.cc_enable and self.Ins(q.Start, S.cc_sess_def):
                 self.day.Add(q, True)
                 if self.vaFirst == DMIN:
                     self.vaFirst = q.Start
                 self.vaEnd = q.End
-        dev = self.main.Stats(S.mvp_val_pct) if visuals else ProfileStats()
+        if mainWindow and trade_rows:
+            for one in subbars:
+                trades = self.MinuteTrades(one.Start, one.Volume)
+                if trades:
+                    self.main.AddPrices(trades)
+                else:
+                    self.main.Add(one, True)
+        dev = (self.mainStats if self.mainStats is not None else self.main.Stats(S.mvp_val_pct)) if visuals else ProfileStats()
         self.UpdateTpo(b, spSession)
         self.contextHlc += (b.High + b.Low + b.Close) / 3 * b.Volume
         self.contextVol += b.Volume
@@ -1143,7 +1245,7 @@ class Engine:
         dtr = NAN if daily is None else max(self.tradeH - self.tradeL, abs(self.tradeH - daily.Close), abs(self.tradeL - daily.Close))
         L = S.daily_atr_length
         f.DailyAtr = (daily.Atr * (L - 1) + dtr) / L if daily is not None and valid(daily.Atr) else NAN
-        zoneAtr = (daily.Atr14 * 13 + dtr) / 14 if daily is not None and valid(daily.Atr14) else NAN
+        zoneAtr = f.DailyAtr   # the level zones' ATR is the Daily ATR Period's, as the dashboard's (it was always 14)
         if rth:
             self.Classify(b, dailyVwap, f.DailyAtr)
         if track:
@@ -1151,9 +1253,10 @@ class Engine:
             if pivot is not None:
                 z = (f.DailyAtr if valid(f.DailyAtr) else 1) * .005
                 self.pivotBias = "BULLISH" if b.Close > pivot.Price + z else "BEARISH" if b.Close < pivot.Price - z else "AT PIVOT"
-        f.RuleActive = S.cc_enable and valid(self.rthO) and (self.rthO > self.prevDay.Vah or self.rthO < self.prevDay.Val)
+        va = self.dayVa   # the value in force at today's open (after the close the pd lines are today's own)
+        f.RuleActive = S.cc_enable and valid(self.rthO) and (self.rthO > va.Vah or self.rthO < va.Val)
         if f.RuleActive and pdSession:
-            if self.prevDay.Val < b.Close < self.prevDay.Vah:
+            if va.Val < b.Close < va.Vah:
                 if self.vaEntry is None:
                     self.vaEntry = b.Start
                 if not self.rule and (b.Start - self.vaEntry).total_seconds() / 60 >= 60:
@@ -1164,7 +1267,7 @@ class Engine:
                 self.vaEntry = None
         if not pdSession and not self.rule:
             self.vaEntry = None
-        f.RuleConfirmed, f.VaHigh, f.VaLow = self.rule, self.prevDay.Vah, self.prevDay.Val
+        f.RuleConfirmed, f.VaHigh, f.VaLow = self.rule, va.Vah, va.Val
         flip = zoneAtr * S.lvl_flip_atr if valid(zoneAtr) else 0
         for lv in self.Levels:
             if S.lvl_color_flip and lv.Kind != 0:
@@ -1182,29 +1285,32 @@ class Engine:
                 self.Cross(f, lv.Name, lv.Price, S.lvl_alerts and (S.lvl_alert_ip if lv.Kind == 0 else S.lvl_alert_bull if lv.Kind == -1 else S.lvl_alert_bear),
                            False, self.LevelZoneHalfWidth(zoneAtr))
         if visuals:
+            # each armed only while its line is drawn (OVN after its lines go, a section switched off: v1.2.2)
             ib_alert = not ib and self.Ins(b.Start, S.ib_alert_time)
             self.Cross(f, "IBH", self.ibH, S.ib_enable and S.ib_alert_ibh and ib_alert, False)
             self.Cross(f, "IBL", self.ibL, S.ib_enable and S.ib_alert_ibl and ib_alert, False)
-            self.Cross(f, "OVN High", self.ovnH, S.amt_enable and S.amt_alert_ovn and not ovn, False)
-            self.Cross(f, "OVN Low", self.ovnL, S.amt_enable and S.amt_alert_ovn and not ovn, False)
+            ovn_drawn = self.OvnDrawn(b.Start, ovn)
+            self.Cross(f, "OVN High", self.ovnH, ovn_drawn and S.amt_alert_ovn, False)
+            self.Cross(f, "OVN Low", self.ovnL, ovn_drawn and S.amt_alert_ovn, False)
             self.Cross(f, "RTH VWAP", f.RthVwap, S.vwap_alert and vwin and pvwin, True)
-            self.Cross(f, "PDH", self.pdH, S.pd_alert_hl, False)
-            self.Cross(f, "PDL", self.pdL, S.pd_alert_hl, False)
-            self.Cross(f, "pwHigh", self.pwH, S.pw_alert_hl, False)
-            self.Cross(f, "pwLow", self.pwL, S.pw_alert_hl, False)
-            self.Cross(f, "Weekly Open", self.weekOpen, S.wk_alert_open, False)
-            self.Cross(f, "pdPOC", self.prevDay.Poc, S.cc_alert_va, False)
-            self.Cross(f, "pdVAH", self.prevDay.Vah, S.cc_alert_va, False)
-            self.Cross(f, "pdVAL", self.prevDay.Val, S.cc_alert_va, False)
-            da = S.mvp_use_cur_alerts and self.Ins(b.Start, S.mvp_alert_time)
-            self.Cross(f, "Developing POC", dev.Poc, da, True)
-            self.Cross(f, "Developing VAH", dev.Vah, da, True)
-            self.Cross(f, "Developing VAL", dev.Val, da, True)
-            self.Cross(f, "pmPOC", self.prevMonth.Poc, S.macro_alert_lvl, False)
-            self.Cross(f, "pmVAH", self.prevMonth.Vah, S.macro_alert_lvl, False)
-            self.Cross(f, "pmVAL", self.prevMonth.Val, S.macro_alert_lvl, False)
-            self.Cross(f, "pmHigh", self.pmH, S.macro_alert_lvl, False)
-            self.Cross(f, "pmLow", self.pmL, S.macro_alert_lvl, False)
+            self.Cross(f, "PDH", self.pdH, S.pd_alert_hl and S.pd_enable and S.pd_showH, False)
+            self.Cross(f, "PDL", self.pdL, S.pd_alert_hl and S.pd_enable and S.pd_showL, False)
+            self.Cross(f, "pwHigh", self.pwH, S.pw_alert_hl and S.pw_enable and S.pw_showH, False)
+            self.Cross(f, "pwLow", self.pwL, S.pw_alert_hl and S.pw_enable and S.pw_showL, False)
+            self.Cross(f, "Weekly Open", self.weekOpen, S.wk_alert_open and S.wk_showOpen, False)
+            cc = S.cc_alert_va and S.cc_enable
+            self.Cross(f, "pdPOC", self.prevDay.Poc, cc and S.cc_show_poc, False)
+            self.Cross(f, "pdVAH", self.prevDay.Vah, cc and S.cc_show_vah, False)
+            self.Cross(f, "pdVAL", self.prevDay.Val, cc and S.cc_show_val, False)
+            da = S.mvp_use_cur_alerts and S.mvp_master and self.Ins(b.Start, S.mvp_alert_time)
+            self.Cross(f, "Developing POC", dev.Poc, da and S.mvp_show_poc, True)
+            self.Cross(f, "Developing VAH", dev.Vah, da and S.mvp_show_vah, True)
+            self.Cross(f, "Developing VAL", dev.Val, da and S.mvp_show_val, True)
+            self.Cross(f, "pmPOC", self.prevMonth.Poc, S.macro_alert_lvl and S.macro_show_poc, False)
+            self.Cross(f, "pmVAH", self.prevMonth.Vah, S.macro_alert_lvl and S.macro_show_month, False)
+            self.Cross(f, "pmVAL", self.prevMonth.Val, S.macro_alert_lvl and S.macro_show_month, False)
+            self.Cross(f, "pmHigh", self.pmH, S.macro_alert_lvl and S.macro_show_hl, False)
+            self.Cross(f, "pmLow", self.pmL, S.macro_alert_lvl and S.macro_show_hl, False)
         if table and not self.Was(S.tbl_session):
             self.tableH, self.tableL = b.High, b.Low
         elif table:
@@ -1232,9 +1338,11 @@ class Engine:
             self.single = [x for x in self.single if not x.Live]
             self.tpoPeriod = -1
             self.spStep = self.BlockStep(self.rowMult)
+            self.tpoH = self.tpoL = NAN
         pid = minute_of(b.Start) // max(1, S.sp_tpo_minutes)
         newPeriod = active and pid != self.tpoPeriod
         if active:
+            self.tpoH, self.tpoL = _max(self.tpoH, b.High), _min(self.tpoL, b.Low)
             lo, hi = math.floor(b.Low / self.spStep), math.floor(b.High / self.spStep)
             if hi - lo + 1 > S.MaxProfileRows:
                 lo = hi - S.MaxProfileRows + 1
@@ -1272,15 +1380,17 @@ class Engine:
                                                     BorderStyle=S.sp_border_style))
                 start = i + 1
             if S.sp_show_poor:
-                hp, lp = (high + 1) * self.spStep, low * self.spStep
+                # at the session's high and low (the high was drawn a block above it: one tick on ES)
+                hp, lp = self.tpoH, self.tpoL
                 if self.tpo[high].Hits >= 2 and not any(x.High and abs(x.Price - hp) < self.Step * 2 for x in self.poor):
                     self.poor.append(Poor(hp, True, self.tpo[high].First, b.Start))
                 if self.tpo[low].Hits >= 2 and not any(not x.High and abs(x.Price - lp) < self.Step * 2 for x in self.poor):
                     self.poor.append(Poor(lp, False, self.tpo[low].First, b.Start))
         maxd = S.sp_max_days
+        # a single print fills when a bar trades in its row [Bottom, Top): its price traded from below fills it too
         self.single = [x for x in self.single
                        if not ((not x.Live and (b.Start - x.Created).total_seconds() / 86400 > maxd)
-                               or (x.Top > b.Low and x.Bottom < b.High))]
+                               or (x.Top > b.Low and x.Bottom <= b.High))]
         self.poor = [x for x in self.poor
                      if not ((b.Start - x.Created).total_seconds() / 86400 > maxd
                              or (b.High > x.Price if x.High else b.Low < x.Price))]
@@ -1300,9 +1410,11 @@ class Engine:
             ext = rng / ibRange if ibRange > 0 else 0
             pos = (b.Close - self.dayL) / rng if rng > 0 else .5
             bu, bd = self.dayH > h, self.dayL < l
-            cvh, cvl = b.Close > self.prevDay.Vah, b.Close < self.prevDay.Val
-            iu = self.dayH > self.pdH or (self.dayH > self.ovnH and cvh)
-            id_ = self.dayL < self.pdL or (self.dayL < self.ovnL and cvl)
+            cvh, cvl = b.Close > self.dayVa.Vah, b.Close < self.dayVa.Val
+            ph = self.openH if valid(self.rthO) else self.pdH   # the pd high and low today's open was measured against
+            pl = self.openL if valid(self.rthO) else self.pdL
+            iu = self.dayH > ph or (self.dayH > self.ovnH and cvh)
+            id_ = self.dayL < pl or (self.dayL < self.ovnL and cvl)
             tu = bu and pos > .75 and vwap > (h + l) / 2 and (self.otfUp >= 5 or iu) and ext > 1.5
             tl = bd and pos < .25 and vwap < (h + l) / 2 and (self.otfDn >= 5 or id_) and ext > 1.5
             tu |= iu and pos > .8 and ext > 2
@@ -1410,18 +1522,25 @@ class Engine:
             return RED_SOFT
         return GRAY
 
+    def OvnDrawn(self, t: datetime, ovn: bool) -> bool:
+        """OVN High/Low are drawn (and alert) after the overnight session, until Delete OVN Lines At's time."""
+        S = self.S
+        return S.amt_enable and not ovn and minute_of(t) < int(S.amt_del_sess[:2]) * 60 + int(S.amt_del_sess[2:4])
+
     def OpenLocation(self):
-        if not valid(self.rthO) or not valid(self.pdH) or not valid(self.pdL):
+        """Today's open against the pd values in force at it (after the close the pd lines are today's own)."""
+        va = self.dayVa
+        if not valid(self.rthO) or not valid(self.openH) or not valid(self.openL):
             return "---"
-        if self.rthO > self.pdH:
+        if self.rthO > self.openH:
             return "Above pdHigh"
-        if self.rthO < self.pdL:
+        if self.rthO < self.openL:
             return "Below pdLow"
-        if self.rthO > self.prevDay.Vah:
+        if self.rthO > va.Vah:
             return "Above pdVAH"
-        if self.rthO < self.prevDay.Val:
+        if self.rthO < va.Val:
             return "Below pdVAL"
-        return "Inside Value" if valid(self.prevDay.Vah) else "---"
+        return "Inside Value" if valid(va.Vah) else "---"
 
     def _ib_lines(self, f: Frame):
         S = self.S
@@ -1440,20 +1559,24 @@ class Engine:
 
     def _pd_lines(self, f: Frame):
         S = self.S
+        # from the trade date's open, or from the close they switched at (the closed session's own: the chart keeps
+        # the lines they replaced over the day before it)
+        hl = max(self.dayStart, self.pdRolledAt) if S.pd_use_rth else self.dayStart
+        po, va = max(self.dayStart, self.pdRolledAt), max(self.dayStart, self.vaRolledAt)
         if S.pd_enable:
             if S.pd_showH:
-                self.Line(f, "pdHigh", self.pdH, self.dayStart, S.pd_high_c, S.pd_high_width, S.pd_style_in, S.pd_offset_val, S.pd_lb_size_in, True, "None", S.pd_txt_c)
+                self.Line(f, "pdHigh", self.pdH, hl, S.pd_high_c, S.pd_high_width, S.pd_style_in, S.pd_offset_val, S.pd_lb_size_in, True, "None", S.pd_txt_c)
             if S.pd_showL:
-                self.Line(f, "pdLow", self.pdL, self.dayStart, S.pd_low_c, S.pd_low_width, S.pd_style_in, S.pd_offset_val, S.pd_lb_size_in, True, "None", S.pd_txt_c)
+                self.Line(f, "pdLow", self.pdL, hl, S.pd_low_c, S.pd_low_width, S.pd_style_in, S.pd_offset_val, S.pd_lb_size_in, True, "None", S.pd_txt_c)
             if S.pd_showOpen:
-                self.Line(f, "pdOpen", self.pdO, self.dayStart, S.pd_open_c, S.pd_open_width, S.pd_style_in, S.pd_offset_val, S.pd_lb_size_in, True, "None", S.pd_txt_c)
+                self.Line(f, "pdOpen", self.pdO, po, S.pd_open_c, S.pd_open_width, S.pd_style_in, S.pd_offset_val, S.pd_lb_size_in, True, "None", S.pd_txt_c)
         if S.cc_enable:
             if S.cc_show_poc:
-                self.Line(f, "pdPOC", self.prevDay.Poc, self.dayStart, S.pd_poc_c, S.cc_poc_width, S.cc_poc_style_in, S.cc_lb_offset, S.cc_lb_size_in, True, "None", S.cc_txt_c)
+                self.Line(f, "pdPOC", self.prevDay.Poc, va, S.pd_poc_c, S.cc_poc_width, S.cc_poc_style_in, S.cc_lb_offset, S.cc_lb_size_in, True, "None", S.cc_txt_c)
             if S.cc_show_vah:
-                self.Line(f, "pdVAH", self.prevDay.Vah, self.dayStart, S.pd_vah_c, S.cc_vah_width, S.cc_poc_style_in, S.cc_lb_offset, S.cc_lb_size_in, True, "None", S.cc_txt_c)
+                self.Line(f, "pdVAH", self.prevDay.Vah, va, S.pd_vah_c, S.cc_vah_width, S.cc_poc_style_in, S.cc_lb_offset, S.cc_lb_size_in, True, "None", S.cc_txt_c)
             if S.cc_show_val:
-                self.Line(f, "pdVAL", self.prevDay.Val, self.dayStart, S.pd_val_c, S.cc_val_width, S.cc_poc_style_in, S.cc_lb_offset, S.cc_lb_size_in, True, "None", S.cc_txt_c)
+                self.Line(f, "pdVAL", self.prevDay.Val, va, S.pd_val_c, S.cc_val_width, S.cc_poc_style_in, S.cc_lb_offset, S.cc_lb_size_in, True, "None", S.cc_txt_c)
         if S.cc_showOpen:
             self.Line(f, "dOpen", self.rthO, self.rthStart, S.cc_c_open, S.cc_open_width, S.cc_open_style, S.cc_open_offset, S.cc_open_lb_size, True, "None", S.opens_txt_c)
 
@@ -1466,7 +1589,7 @@ class Engine:
         S = self.S
         now = f.Bar.Start
         self._ib_lines(f)
-        if S.amt_enable and not ovn and minute_of(now) < int(S.amt_del_sess[:2]) * 60 + int(S.amt_del_sess[2:4]):
+        if self.OvnDrawn(now, ovn):
             self.Line(f, "OVN High", self.ovnH, self.rthStart, S.amt_c_hi, S.amt_width, S.amt_style_in, S.amt_offset, S.amt_lb_size_in, S.amt_showLb, "None")
             self.Line(f, "OVN Low", self.ovnL, self.rthStart, S.amt_c_lo, S.amt_width, S.amt_style_in, S.amt_offset, S.amt_lb_size_in, S.amt_showLb, "None")
             for li in f.Lines:
@@ -1601,7 +1724,7 @@ class LevelAlertTracker:
                 was_inside = abs(pclose - pcenter) <= pwidth
                 inside = abs(close - l.Price) <= l.HalfWidth
                 if mode in ("Zone Entry", "Both") and not was_inside and inside:
-                    result.append(Notice(l.Name + "Zone", f"{l.Name} Zone Entry @ {price_str(l.Price, root, tick)} (±{price_str(l.HalfWidth, root, tick)})"))
+                    result.append(Notice(l.Name + "Zone", f"{l.Name} Zone Entry @ {price_str(l.Price, root, tick)} (±{width_str(l.HalfWidth, tick)})"))
             self.points[l.Name] = (close, l.Price, l.HalfWidth, l.Enabled)
         for k in [k for k in self.points if k not in present]:
             del self.points[k]

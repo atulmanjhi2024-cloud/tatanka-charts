@@ -88,7 +88,7 @@ const api = async (method, path, body) => {{ const h = hold; hold = null; if (h)
 # ---- fp-2: replay, the last bar shown ends where it ends -------------------------------------------------------------
 
 REPLAY_JS = BARS_JS + """
-const REPLAY = __REPLAY__, fpSchedule = () => {}, replayUi = () => {}, replayMore = () => {}, toast = () => {};
+const REPLAY = __REPLAY__, fpSchedule = () => {}, replayUi = () => {}, replayStudies = () => {}, replayMore = () => {}, toast = () => {};
 const fail = (e) => { throw e; };
 const api = async (method, path, body) => (method === 'GET' ? REPLAY[path] : answer(body));
 function applyHistory(m) { S.kind = m.kind; S.bars = m.bars.slice(); S.fp.clear(); }   // its footprint lines

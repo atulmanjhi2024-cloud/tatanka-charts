@@ -295,7 +295,7 @@ const rth = () => asked.splice(0).map((p) => new URLSearchParams(p.split('?')[1]
 
 @needs_node
 def test_the_chart_asks_for_its_own_hours_and_drops_an_answer_for_the_other():
-    out = run_app(["TPO_DRAWING", "tpoSpecOk", "tpoBusy", "tpoRequest", "GAP_SERVER", "gapSpecOk", "gapRthOk", "GAP_RTH_BAD",
+    out = run_app(["replayUntil", "studyView", "TPO_DRAWING", "tpoSpecOk", "tpoBusy", "tpoRequest", "GAP_SERVER", "gapSpecOk", "gapRthOk", "GAP_RTH_BAD",
                    "gapBusy", "gapRequest", "hemaBusy", "hemaRequest"], REQ_JS)
     assert out["rth"] == ["true", "true", "true"]
     assert out["eth"] == [None, None, None]                    # all hours: the requests as before

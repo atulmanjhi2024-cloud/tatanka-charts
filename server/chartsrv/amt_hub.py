@@ -33,6 +33,7 @@ PD_KEY = "amtpd2"            # vp_cache key prefix: PD_KEY|SYM|start|end
 PD_NT_DAYS = 7               # sessions this recent come from NinjaTrader's tick history when the add-on can send it
 PD_NT_WAIT_S = 300           # ...waited for this long each
 LIVE_BAR_AGE_MS = 5 * 60_000  # notices from older bars (buffered data catching up) never alert
+REPLAY_PER_PAGE = 8          # replaying charts' runners one page (connection) holds: the oldest goes past this
 # Every setting as NinjaTrader's property grid shows it, with the checks of its ValidateSettings (tools/gen_amt_schema.py).
 SCHEMA = json.loads(Path(__file__).with_name("amt_schema.json").read_text(encoding="utf-8"))
 # NinjaTrader properties that live outside the engine's Settings: where the daily levels come from (daily_levels.py)
@@ -75,6 +76,15 @@ ALERT_NEEDS = {
     "inv_alert": ("inv_enable",), "spike_alert": ("showSpike",),
     "npoc_alert": ("npoc_enable", "npoc_d_show", "npoc_w_show", "npoc_m_show"),
 }
+
+
+def _hours_long(session: str) -> float | None:
+    """A session's length in hours ("0830-1500" -> 6.5; one past midnight counts on), None if it doesn't read."""
+    m = re.match(r"^(\d{2})(\d{2})-(\d{2})(\d{2})", str(session or ""))
+    if not m:
+        return None
+    a, b = int(m[1]) * 60 + int(m[2]), int(m[3]) * 60 + int(m[4])
+    return ((b - a) % 1440) / 60 or None
 
 
 def alert_overrides(overrides: dict) -> dict:
@@ -138,11 +148,46 @@ class AmtEntry:
         self.runner = runner
         self.ready = asyncio.Event()
         self.pending: list[Bar] = []
+        self.pending_trades: list = []   # live trades while it loads (Tick)
         self.subs: set = set()        # (client, sid)
         self.error: str | None = None
         self.dropped = False          # new settings or a gap fill let go of it (so its failure is no chart's)
         self.idle_since = time.monotonic()
         self.sig = None
+
+
+class ReplayAmt:
+    """A replaying chart's Toolkit: its own runner, never alerting, loaded from the HISTORY_DAYS before the replay
+    clock and fed the stored minutes as the replay plays (built again when it goes back, or its settings change)."""
+
+    def __init__(self, runner: AmtRunner, want: tuple, upto: int, gen: int = 0):
+        self.runner = runner
+        self.want = want            # (symbol, minutes, its settings): another and it is built again
+        self.upto = upto            # the minutes before this are in it
+        self.gen = gen              # AmtHub.replay_gen of its symbol when loaded: another (new settings, a gap fill)
+                                    # and it is loaded again
+
+
+def feed_minutes(db_path, runner: AmtRunner, symbol: str, since: int, before: int) -> AmtRunner:
+    load_trades(db_path, runner, symbol, before, since)
+    for b in iter_bars_1m(db_path, symbol, since, before):
+        runner.add_minute(b)
+    return runner
+
+
+def load_trades(db_path, runner: AmtRunner, symbol: str, before: int, since: int = 0):
+    """The stored trades of the runner's current Session or Weekly profile before `before` (from `since` on), per
+    minute and price: that profile is drawn from them (a minute without all of its trades: from its 1-minute bar)."""
+    start = runner.period_start(before)
+    if start is None:
+        return
+    db = connect(db_path, readonly=True)
+    try:
+        for m, px, v in db.execute("SELECT ts / 60000 * 60000, price, SUM(size) FROM ticks WHERE symbol=? AND ts>=? "
+                                   "AND ts<? AND size>0 GROUP BY ts / 60000, price", (symbol, max(start, since), before)):
+            runner.add_trade(m, px, v)
+    finally:
+        db.close()
 
 
 def pd_job(db_path, symbol: str, windows: list, tick: float) -> dict:
@@ -175,6 +220,7 @@ def pd_job(db_path, symbol: str, windows: list, tick: float) -> dict:
 
 
 def _load_history(db_path, runner: AmtRunner, symbol: str, split: int):
+    load_trades(db_path, runner, symbol, split)
     for b in iter_bars_1m(db_path, symbol, split - HISTORY_DAYS * 86_400_000, split):
         runner.add_minute(b)
     runner.commit_ready()
@@ -207,6 +253,9 @@ class AmtHub:
         self.pd_failed: dict[str, float] = {}
         self.pd_mem: dict[str, dict] = {}      # recent sessions from the trades stored here (NinjaTrader's history
                                                # couldn't be had): kept in memory only, asked of NinjaTrader again later
+        self.replays: dict[tuple, ReplayAmt] = {}   # (client, sid) -> a replaying chart's Toolkit
+        self.replay_locks: dict[tuple, asyncio.Lock] = {}
+        self.replay_gen: dict[str, int] = {}        # symbol -> its settings or history changed (replays load again)
         db = getattr(getattr(market, "store", None), "db", None)
         try:   # the first version's, from the trades stored here only: worked out again
             if db is not None:
@@ -261,10 +310,40 @@ class AmtHub:
         """Every symbol with alert settings: the instruments, and those kept for one taken off Instruments."""
         return sorted({*self.m.instruments, *self.per_symbol, *self.alert_cfg})
 
+    def alert_run(self, sym: str) -> tuple[int, str, dict]:
+        """The runner that alerts for `sym`: the minutes and own settings of the chart its alerts were switched on from
+        (alert_cfg: "minutes", "set"), so what it alerts on is what that chart draws (a Value Area % or IB session of
+        its own, its bars), with what each alert switch on needs (alert_overrides). A symbol's alerts switched on before
+        they were kept: ALERT_MINUTES on its starting settings. (minutes, sig, overrides): sig "" for the starting
+        settings' runner."""
+        cfg = self.alert_cfg.get(sym) or {}
+        minutes = self.engine_minutes(sym, cfg.get("minutes") or ALERT_MINUTES)
+        own = cfg.get("set")
+        if own is None:
+            _base, _s, alert, sig = self._of(sym)
+            return minutes, sig, alert
+        try:
+            _sig, mine = self.chart_settings(own, sym)
+        except (ValueError, KeyError, TypeError):   # settings no longer valid (a newer version's checks): the symbol's
+            _base, _s, alert, sig = self._of(sym)
+            return minutes, sig, alert
+        alert = alert_overrides(mine)
+        return minutes, ("" if alert == self.base(sym) else json.dumps(alert, sort_keys=True, separators=(",", ":"))), alert
+
+    def engine_minutes(self, sym: str, minutes) -> int:
+        """The Toolkit's bars for a chart's minutes (1-30): ones its regular hours open and close on, so the IB, the RTH
+        open and the sessions start where they should (GC's 07:20 on a 15- or 30-minute chart: 5- and 10-minute bars;
+        ES's 08:30 on a 20-minute chart: 10). Bars are whole minutes of the hour (a 7-minute chart's: 1)."""
+        m = max(1, min(30, int(minutes)))
+        inst = self.m.instruments.get(sym)
+        for t in (inst.rth if inst and inst.rth else ("08:30", "15:00")):
+            m = math.gcd(m, int(t[:2]) * 60 + int(t[3:5]))
+        return math.gcd(m, 60)
+
     def alert_key(self, sym: str) -> tuple:
-        """The key of the runner that alerts for `sym`."""
-        sig = self._of(sym)[3]
-        return (sym, ALERT_MINUTES, sig) if sig else (sym, ALERT_MINUTES)
+        """The key of the runner that alerts for `sym` (alert_run)."""
+        minutes, sig, _ = self.alert_run(sym)
+        return (sym, minutes, sig) if sig else (sym, minutes)
 
     def chart_settings(self, overrides: dict | None, sym: str | None = None) -> tuple[str, dict]:
         """A chart's own settings, cleaned (ValueError if bad), and its runners' key: "" when they are the symbol's
@@ -292,6 +371,8 @@ class AmtHub:
         for h, m in (("vwap_start_h", "vwap_start_m"), ("vwap_end_h", "vwap_end_m"), ("inv_end_h", "inv_end_m")):
             t = move(eff[h] * 60 + eff[m])
             moved[h], moved[m] = t // 60, t % 60
+        if eff["mvp_sess_dur"] == _hours_long(eff["mvp_sess_time"]):   # the session's own length: the moved one's
+            moved["mvp_sess_dur"] = _hours_long(moved["mvp_sess_time"]) or eff["mvp_sess_dur"]
         return engine_settings({**ov, **moved})
 
     def settings_value(self, name: str):
@@ -344,7 +425,20 @@ class AmtHub:
                     client.amt_entries.pop(sid, None)
                     client.put({"type": "amt_reset", "id": sid})
                 del self.entries[key]
+        self._reset_replays(lambda sym: every or sym in changed)
         self.ensure_alert_runners()
+
+    def _reset_replays(self, hit):
+        """Replaying charts whose symbol `hit` takes: their runners go, and they are told to ask again (one loading
+        meanwhile is not kept: replay_gen)."""
+        for sym in {*self.m.instruments, *(rp.want[0] for rp in self.replays.values())}:
+            if hit(sym):
+                self.replay_gen[sym] = self.replay_gen.get(sym, 0) + 1
+        for (client, sid), rp in list(self.replays.items()):
+            if hit(rp.want[0]):
+                del self.replays[(client, sid)]
+                client.amt_state.pop(sid, None)
+                client.put({"type": "amt_reset", "id": sid})
 
     def reload(self, sym: str):
         """History of `sym` changed: its engines load again (charts are told to ask anew), the prior days' values
@@ -359,7 +453,7 @@ class AmtHub:
             log.exception("AMT %s: prior-day values not cleared", sym)
         self._rebuild(sym)
 
-    def _rebuild(self, sym: str):
+    def _rebuild(self, sym: str, replays: bool = True):
         for key, e in list(self.entries.items()):
             if key[0] != sym:
                 continue
@@ -368,12 +462,19 @@ class AmtHub:
                 client.amt_entries.pop(sid, None)
                 client.put({"type": "amt_reset", "id": sid})
             del self.entries[key]
+        if replays:
+            self._reset_replays(lambda s: s == sym)
         self.ensure_alert_runners()
 
-    def set_alerts(self, symbol: str, on: bool):
-        """Per symbol on/off; how levels alert (Cross, Zone Entry, Both) is the Level alert mode setting."""
+    def set_alerts(self, symbol: str, on: bool, minutes: int | None = None, own: dict | None = None):
+        """Per symbol on/off; how levels alert (Cross, Zone Entry, Both) is the Level alert mode setting. Switched on
+        from a chart: its minutes and own settings (None: the symbol's starting ones), which the alerts run on
+        (alert_run). ValueError for settings that don't check."""
+        if on and own is not None:
+            self.chart_settings(own, symbol)
         was = self.alerting(symbol)
-        self.alert_cfg[symbol] = {"on": bool(on)}
+        self.alert_cfg[symbol] = {"on": bool(on), **({"minutes": int(minutes)} if minutes else {}),
+                                  **({"set": own} if own is not None else {})}
         self.m.store.set_setting("amt_alerts", self.alert_cfg)
         e = self.entries.get(self.alert_key(symbol))
         if on and not was and e and e.ready.is_set() and not e.error:
@@ -394,11 +495,11 @@ class AmtHub:
                 asyncio.get_running_loop().create_task(self._safe_entry(sym))
 
     async def _safe_entry(self, sym):
-        _base, _s, alert, sig = self._of(sym)
+        minutes, sig, alert = self.alert_run(sym)
         try:
-            await self.entry(sym, ALERT_MINUTES, sig, alert)
+            await self.entry(sym, minutes, sig, alert)
         except Exception:
-            log.exception("AMT runner %s %sm failed", sym, ALERT_MINUTES)
+            log.exception("AMT runner %s %sm failed", sym, minutes)
 
     # --- runners --------------------------------------------------------------------------------------
     def _levels(self, runner: AmtRunner, sym: str):
@@ -439,7 +540,11 @@ class AmtHub:
                         runner.add_minute(b)
                 for b in e.pending:
                     runner.add_minute(b)
+                for tk in e.pending_trades:
+                    if tk.ts >= split:
+                        runner.add_trade(tk.ts, tk.price, tk.size)
                 e.pending = []
+                e.pending_trades = []
                 runner.commit_ready()
                 # the forming bar's notices count as sent: history never alerts, and the runner this one replaces (a
                 # restart, a gap fill, new settings) may have sent them already
@@ -467,6 +572,15 @@ class AmtHub:
                 else:
                     e.pending.append(b)
 
+    def on_trade(self, tk: Tick):
+        """Every trade (live or a gap fill's, in order): the runners drawing their current profile from trades."""
+        for key, e in self.entries.items():
+            if key[0] == tk.symbol and e.runner.wants_trades():
+                if e.ready.is_set():
+                    e.runner.add_trade(tk.ts, tk.price, tk.size)
+                else:
+                    e.pending_trades.append(tk)
+
     def on_live_tick(self, tk: Tick):
         cfg = self.alerting(tk.symbol)
         if not cfg:
@@ -482,12 +596,15 @@ class AmtHub:
                 e.sig = None
 
     # --- chart subscriptions --------------------------------------------------------------------------
-    async def subscribe(self, client, sid: int, sym: str, minutes: int, overrides: dict | None = None):
+    async def subscribe(self, client, sid: int, sym: str, minutes: int, overrides: dict | None = None,
+                        until: int | None = None):
         """A chart showing the Toolkit, on its own settings (overrides: all that differ from NinjaTrader's defaults;
-        None: the symbol's starting ones)."""
+        None: the symbol's starting ones). until: bar replay's clock, the Toolkit as it stood then (replay())."""
         if sym not in self.m.instruments:
             raise ValueError(f"unknown symbol {sym}")
-        minutes = max(1, min(30, int(minutes)))
+        minutes = self.engine_minutes(sym, minutes)
+        if until is not None:   # a replaying chart (one replaying up to the present: as of now, its forming bar's end ahead)
+            return await self.replay(client, sid, sym, minutes, overrides, max(0, min(int(until), int(time.time() * 1000))))
         asked = client.amt_asked[sid] = object()   # a newer request, or amt_off, while this one loads: this one is dropped
         sig, mine = self.chart_settings(overrides, sym)
         e = await self.entry(sym, minutes, sig, mine, raise_error=False)
@@ -507,7 +624,77 @@ class AmtHub:
         client.amt_entries[sid] = e
         client.put(self._message(e, client, sid, full=True))
 
+    async def replay(self, client, sid: int, sym: str, minutes: int, overrides: dict | None, until: int):
+        """A replaying chart's Toolkit at the replay clock (to its minute): its runner carried forward to it, or loaded
+        from the stored minutes before it (the first ask, a jump back, other settings). One message per ask: the
+        chart asks again as the replay steps. Its daily levels are those of the replay's day (DailyLevels.as_of)."""
+        sig, mine = self.chart_settings(overrides, sym)
+        want, cut = (sym, minutes, json.dumps(mine, sort_keys=True)), until // 60_000 * 60_000
+        asked = client.amt_asked[sid] = object()
+        lock = self.replay_locks.setdefault((client, sid), asyncio.Lock())
+        async with lock:
+            if client.closed or client.amt_asked.get(sid) is not asked:   # a newer ask came while this one waited
+                return
+            gen = self.replay_gen.get(sym, 0)
+            rp = self.replays.get((client, sid))
+            full = rp is None or rp.want != want or cut < rp.upto or rp.gen != gen
+            self.m.flush_for_read()
+            if full:
+                inst = self.m.instruments[sym]
+                runner = AmtRunner(sym, inst.tick_size, minutes, self.settings_for(sym, mine if sig else None),
+                                   calendar=inst.calendar, rth_session=sessions.move_session("0830-1500", sessions.rth_mover(inst.rth)))
+                runner.pd_values = self._pd_cached(sym)
+                self._replay_levels(runner, sym, cut)
+                t0 = time.perf_counter()
+                runner = await workers.run("study", workers.load_amt, self.m.store.path, runner, sym, cut)
+                rp = ReplayAmt(runner, want, cut, gen)
+                log.info("AMT %s %sm replay at %s loaded in %.1fs", sym, minutes, datetime.fromtimestamp(cut / 1000, sessions.CT)
+                         .strftime("%Y-%m-%d %H:%M"), time.perf_counter() - t0)
+            elif cut > rp.upto:
+                await asyncio.to_thread(feed_minutes, self.m.store.path, rp.runner, sym, rp.upto, cut)
+                rp.upto = cut
+                self._replay_levels(rp.runner, sym, cut)
+            if rp.runner.pd_missing:   # prior days from minutes until their trades are worked out (then it loads again)
+                self._want_pd(sym, rp.runner)
+            now_asked = client.amt_asked.get(sid)
+            if client.closed or now_asked is None:   # amt_off, or the chart went
+                return
+            if self.replay_gen.get(sym, 0) != gen:   # new settings or a gap fill meanwhile: from what it read, not kept
+                self.replays.pop((client, sid), None)
+                if now_asked is asked:
+                    client.amt_asked.pop(sid, None)
+                    client.amt_state.pop(sid, None)
+                    client.put({"type": "amt_reset", "id": sid})
+                return
+            if (client, sid) not in self.replays:   # a page's runners: the oldest go past REPLAY_PER_PAGE
+                mine_ = [k for k in self.replays if k[0] is client]
+                for k in mine_[:max(0, len(mine_) - REPLAY_PER_PAGE + 1)]:
+                    del self.replays[k]
+                    client.amt_state.pop(k[1], None)
+            self.replays[(client, sid)] = rp   # kept for the newer ask waiting, if there is one: it carries on from here
+            if now_asked is not asked:
+                return
+            client.amt_asked.pop(sid, None)
+            e = client.amt_entries.pop(sid, None)   # it showed the live Toolkit: no more
+            if e:
+                e.subs.discard((client, sid))
+            r = rp.runner
+            r.commit_ready()
+            r.preview()
+            if full:
+                client.amt_state.pop(sid, None)
+            client.put(self._message(rp, client, sid, full=full, profile=True))
+
+    def _replay_levels(self, runner: AmtRunner, sym: str, at: int):
+        try:
+            levels, date, _src = self.m.daily.as_of(sym, at)
+        except ValueError:
+            levels, date = [], None
+        runner.set_level_list(levels, date, None)
+
     def unsubscribe(self, client, sid: int):
+        self.replays.pop((client, sid), None)
+        self.replay_locks.pop((client, sid), None)
         client.amt_asked.pop(sid, None)
         e = client.amt_entries.pop(sid, None)
         client.amt_state.pop(sid, None)
@@ -516,13 +703,13 @@ class AmtHub:
             if not e.subs:
                 e.idle_since = time.monotonic()
 
-    def _message(self, e: AmtEntry, client, sid: int, full: bool) -> dict:
-        """Lines and dashboard every update; the developing profile at most every PROFILE_EVERY_S; past
-        profiles, past days' lines and the 80% fill runs only when they change."""
+    def _message(self, e: AmtEntry | ReplayAmt, client, sid: int, full: bool, profile: bool = False) -> dict:
+        """Lines and dashboard every update; the developing profile at most every PROFILE_EVERY_S (profile: now);
+        past profiles, past days' lines and the 80% fill runs only when they change."""
         r = e.runner
         now = time.monotonic()
         st = client.amt_state.get(sid) or {"past": -1, "hist": -1, "samples": -1, "profile_at": 0.0}
-        profile = full or now - st["profile_at"] >= PROFILE_EVERY_S
+        profile = profile or full or now - st["profile_at"] >= PROFILE_EVERY_S
         data = r.payload(full or st["past"] != r.past_rev, full or st["hist"] != r.history_rev,
                          full or st["samples"] != r.samples_rev, profile, None if full else st.get("vwap"))
         sent = {}
@@ -694,7 +881,7 @@ class AmtHub:
                                             [(f"{PD_KEY}|{sym}|{b}|{e}", json.dumps(v)) for (b, e), v in keep.items()])
             log.info("AMT %s: prior-day value from trades for %d days (%d from NinjaTrader) in %.1fs", sym,
                      len(windows), len(from_nt), time.perf_counter() - t0)
-            self._rebuild(sym)
+            self._rebuild(sym)   # replaying charts too: they load again with the trades
         except Exception:
             log.exception("AMT %s: prior-day values from trades failed", sym)
             self.pd_failed[sym] = time.monotonic()

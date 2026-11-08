@@ -47,12 +47,12 @@ def test_quick_switch_charts_a_lowercase_fred_eia_or_data_series_from_its_source
     Yahoo ticker T10Y2YM ('fred:' taken for an exchange prefix)."""
     typed = ["fred:t10y2ym", "Fred:DGS10", "eia:pet.wcestus1.w", "data:goldoil", "FRED:T10Y2YM", "nasdaq:aapl", "aapl",
              "cme_mini:es1!", "rty1!", "spy/qqq"]
-    out = run_app_js(app_js("function chartSym("), f"""
+    out = run_app_js(app_js("const FORMULA_SYM", "function chartSym("), f"""
 const wl = require('fs').readFileSync({json.dumps(str(WEB / "watchlist.js"))}, 'utf8').split('function createWatchlist')[0];
 vm.runInContext(wl + '\\nvar S = {{ instruments: {{ ES: {{}} }}, catalog: {{ RTY: {{}} }} }};\\n' + /*APP*/ + '\\nthis.chartSym = chartSym;', ctx);
 out({json.dumps(typed)}.map((v) => ctx.chartSym(v)));""")
     assert out == ["FRED:T10Y2YM", "FRED:DGS10", "EIA:PET.WCESTUS1.W", "DATA:GOLDOIL", "FRED:T10Y2YM", "AAPL", "AAPL",
-                   "ES", "RTY1!", None]
+                   "ES", "RTY1!", "SPY/QQQ"]   # a formula: its own chart
 
 
 @needs_node

@@ -8,17 +8,23 @@
 2. The symbol's pasted line (the Plan tab; NinjaTrader's "Paste Levels Here"), as TradingView takes it:
    "2026-10-15, pivot, prices..." or the Pivot Level / Resistance Levels / Support Levels block.
 
+Each symbol's levels are kept as they come (levels_kept: their trade date and the time each version was first seen; a
+row of none when they go), so bar replay shows the levels the chart had at a past moment (as_of): a levels file, link
+or pasted line holds only the current day.
+
 A file is re-read when it changes (checked every 5 s). A link is asked at once when the setting is set or changed
 (and when the server starts), then every 2 minutes while the market is open, and not while it is shut. A file or
 link that fails keeps the last good levels and says why. The Daily levels study, level alerts and /api/levels take
 these levels too (levels.py), made again on every change (Market.levels_changed)."""
+import json
 import logging
 import ntpath
+import sqlite3
 import os
 import re
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from . import amt, sessions, stopping
@@ -28,6 +34,7 @@ MICRO_PARENT = {"MES": "ES", "MNQ": "NQ", "MCL": "CL", "MGC": "GC"}   # MathEx.L
 DEFAULT_FILE = r"%USERPROFILE%\Documents\Tatanka\levels\{root}.txt"
 FILE_CHECK_S = 5
 LINK_EVERY_MS = 120_000   # a levels link, while the market is open
+KEPT_DAYS = 4             # bar replay: kept levels for a trade date at most this many days before (a weekend, a holiday)
 DOCS_RE = re.compile(r"^(?:%USERPROFILE%|[A-Za-z]:\\Users\\[^\\]+)\\(?:OneDrive[^\\]*\\)?Documents\\(.+)$", re.I)
 WINDOWS = os.name == "nt"   # the server runs on Windows itself (no Docker)
 
@@ -107,6 +114,67 @@ class DailyLevels:
             return levels, date, Source(origin="paste", text=self.paste[sym], date=date, error=s.error if s else "")
         return [], None, Source(origin="none", error=s.error if s else "")
 
+    def as_of(self, sym: str, at_ms: int) -> tuple[list, datetime | None, Source]:
+        """The levels a past moment had (bar replay): the version kept last by then (overnight, the day before's until
+        the new day's came), if it is for that moment's trade date or at most KEPT_DAYS before; else none. With no
+        database (a stand-in market), the current ones if they are for that trade date."""
+        day = amt.trading_date(datetime.fromtimestamp(at_ms / 1000, sessions.CT).replace(tzinfo=None))
+        if getattr(getattr(self.m, "store", None), "db", None) is not None:
+            return self.kept(sym, day, at_ms) or ([], None, Source(origin="none"))
+        levels, date, s = self.current(sym)
+        if levels and date is not None and date.date() == day.date():
+            return levels, date, s
+        return [], None, Source(origin="none")
+
+    # --- the levels kept per day, for bar replay ---------------------------------------------------------
+    def remember(self, now_ms: int | None = None):
+        """Keeps each symbol's levels (a levels file, link or pasted line, with a date) for their trade date, when they
+        differ from the last kept; when it has none of those any more (cleared, a file gone), a row of none for the
+        trade date then. Called on every change of the levels and once at start."""
+        now_ms = now_ms or int(time.time() * 1000)
+        db = getattr(getattr(self.m, "store", None), "db", None)
+        if db is None:
+            return
+        today = amt.trading_date(datetime.fromtimestamp(now_ms / 1000, sessions.CT).replace(tzinfo=None))
+        for sym in self.m.instruments:
+            try:
+                levels, date, s = self.current(sym)
+            except ValueError:   # a pasted line the Toolkit rejects: no levels
+                levels, date, s = [], None, Source()
+            if levels and date is not None and s.origin in ("file", "link", "paste"):
+                day, data = date.strftime("%Y-%m-%d"), json.dumps([[x.Name, x.Price, x.Kind] for x in levels])
+            else:
+                day, data = today.strftime("%Y-%m-%d"), "[]"
+            try:
+                last = db.execute("SELECT date, levels FROM levels_kept WHERE symbol=? ORDER BY seen DESC LIMIT 1",
+                                  (sym,)).fetchone()
+                if (last is None and data != "[]") or (last is not None and (last[1] != data or (data != "[]" and last[0] != day))):
+                    with db:
+                        db.execute("INSERT OR REPLACE INTO levels_kept VALUES (?, ?, ?, ?, ?, ?)",
+                                   (sym, day, now_ms, s.origin, s.where if s.origin in ("file", "link") else "", data))
+            except sqlite3.Error as e:   # a full disk: kept at the next change
+                log.warning("levels for %s %s not kept: %s", sym, day, e)
+
+    def kept(self, sym: str, day: datetime, at_ms: int) -> tuple[list, datetime, Source] | None:
+        """The version kept last by at_ms, if it is for `day` or at most KEPT_DAYS before (None: none, or a row of none)."""
+        db = getattr(getattr(self.m, "store", None), "db", None)
+        if db is None:
+            return None
+        try:
+            row = db.execute("SELECT date, origin, source, levels FROM levels_kept WHERE symbol=? AND seen<=? AND date<=? "
+                             "AND date>=? ORDER BY seen DESC LIMIT 1",
+                             (sym, at_ms, day.strftime("%Y-%m-%d"), (day - timedelta(days=KEPT_DAYS)).strftime("%Y-%m-%d"))).fetchone()
+        except sqlite3.Error:
+            return None
+        if row is None or row[3] == "[]":
+            return None
+        try:
+            levels = [amt.Level(str(n), float(p), int(k)) for n, p, k in json.loads(row[3])]
+            date = datetime.strptime(row[0], "%Y-%m-%d")
+        except (ValueError, TypeError):
+            return None
+        return levels, date, Source(origin=row[1], where=row[2], date=date)
+
     def status(self, sym: str) -> dict:
         try:
             levels, date, s = self.current(sym)
@@ -118,6 +186,7 @@ class DailyLevels:
 
     # --- reading files and links -------------------------------------------------------------------------
     async def run(self):
+        self.remember()   # the levels as they are at start (a pasted line set before levels were kept)
         while True:
             try:
                 await self.poll()

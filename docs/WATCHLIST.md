@@ -152,6 +152,18 @@ More free data, no account:
 - **EIA** energy data (`EIA:PET.WCESTUS1.W` crude stocks, Cushing, gasoline, distillates, production, refinery runs,
   natural gas storage; search "EIA"): watchlist values and weekly charts. Needs EIA's free key (Connections > EIA).
 
+**Formula charts**: type a formula in the symbol search and press Enter, or click one in the watchlist:
+`VIXM/VIXY`, `VIX9D/VIX`, `ES1!/NQ1!`, `(GC1!/SI1!)*100`, `AAPL+MSFT`, `FRED:DGS10-FRED:DGS2` (the watchlist's
+formulas: + - * / and parentheses over symbols and numbers, up to 10 symbols). The server works it out bar by bar from
+each symbol's bars at the chart's timeframe: a future charted live here from its own chart (the stored trades), any
+other symbol as its free-data chart gets it. The first symbol's bars set the times; another's value at each is its
+bar opening then, or its last close before (a stock's 09:30 hour against a future's 09:00, a holiday one side has).
+High and low are each bar's open and close (the symbols' highs don't come at the same moment), as TradingView draws a
+spread; no volume. Indicators, drawings and Compare work on it as on any chart; the last bar moves with the symbols'
+quotes between refreshes (as the watchlist works the formula out), and the legend says **formula**. Time bars only (a
+formula with a FRED or EIA series: days and longer). Alerts don't run on formula charts yet (nor on stock charts:
+they run on the live futures).
+
 Each free-data chart runs on its own exchange's clock: US stocks on New York's (regular hours 09:30-16:00 ET),
 crypto on UTC around the clock, currencies on the 17:00 New York roll, other markets on their exchange's zone (from
 Yahoo). Session breaks fall where that market's day starts (crypto at 00:00 UTC, not 17:00 CT), and **Exchange** in

@@ -55,7 +55,7 @@ down instead of overlapping. Range and lines are per symbol, on the Plan tab.
 
 ## Tatanka AMT Toolkit
 
-Studies ▾ → **Tatanka AMT Toolkit**. A line-for-line Python port of the NinjaTrader AMT Toolkit v1.2.0
+Studies ▾ → **Tatanka AMT Toolkit**. A line-for-line Python port of the NinjaTrader AMT Toolkit v1.2.2
 from tatankatrading/tatanka-indicators (MPL 2.0; the ported files keep its license header). It runs on the
 server, so it draws the same lines the NinjaTrader version does and can alert with no chart open.
 
@@ -65,12 +65,14 @@ server, so it draws the same lines the NinjaTrader version does and can alert wi
 - The daily levels (Plan tab) feed it as PIVOT/RES/SUPP lines (the Daily levels study's plain lines are hidden
   while it is on). Levels more than one trading day old show a STALE LEVELS warning, as in the original.
 - Engine bars are 1-30 minutes: minute charts use their own size, longer time charts 30, tick/volume/range
-  charts 5. It loads the last 90 days of stored 1-minute bars, so backfill first. The Year profile only
+  charts 5, made smaller where the instrument's regular hours don't open or close on them (GC's 07:20: 10-minute bars
+  on a 30-minute or longer chart, 5 on a 15-minute one; a 20-minute ES chart 10), so the IB and the RTH open start
+  where they should. It loads the last 90 days of stored 1-minute bars, so backfill first. The Year profile only
   sees those 90 days.
 - **The prior day's value** (pdPOC, pdVAH, pdVAL and the 80% Rule) comes from that day's **trades** at one-tick
   rows, as a tick volume profile and the Session VP do. For the last 7 days, with the NinjaTrader add-on connected,
   the trades are **NinjaTrader's tick history** for the session (asked of the add-on as a gap fill is, not stored), so
-  the values are worked out from the same trades as the NinjaTrader AMT Toolkit v1.2.0 (the trades
+  the values are worked out from the same trades as the NinjaTrader AMT Toolkit (the trades
   recorded here can differ from them by a few hundred contracts, a few ticks on a value area edge); a trade stamped on
   the minute counts in the minute it ends, as NinjaTrader's bars. Otherwise, the trades stored here (a minute with none:
   its 1-minute bar's volume spread evenly over its ticks); a recent day worked out that way is asked of NinjaTrader
@@ -80,6 +82,24 @@ server, so it draws the same lines the NinjaTrader version does and can alert wi
   26902.50 from minutes, 26880.00 from trades). Its value area is **Value Area %** in *4. Previous Day Value & 80%
   Rule*, a fraction (0.68 by default; 0.70 to compare with a 70% profile). The one in *11. Volume Profile* is the
   developing profile's.
+- With *11. Volume Profile → Profile Period* on Session (its Session Time on the same hours, 08:30-15:00 CT), the
+  prior day's drawn profile comes from the same trades as its pd lines at one-tick rows (v1.2.1), so its tallest row
+  is pdPOC and its shaded value area ends at pdVAH and pdVAL when the two Value Area % match. A Weekly or longer
+  profile shades the whole period's value area.
+- **The current profile** (Profile Period Session or Weekly, the default), its POC and value area and the Developing
+  POC, VAH and VAL lines come from the period's **trades** at the Row Scale's rows (v1.2.2), as a tick volume profile:
+  the stored ones from the start of the session or week as the Toolkit loads, then each live trade. A minute whose
+  trades don't add up to its 1-minute bar's volume (gap-filled history is bars only) is spread over its range as
+  before. Monthly and Yearly profiles and older weeks come from 1-minute bars.
+- Every pd line (pdHigh, pdLow, pdOpen, pdPOC, pdVAH, pdVAL) switches to the session just closed at its close
+  (15:00 CT; CL's 13:30), and that session's profile is redrawn from its trades at the same moment (v1.2.2; before,
+  they waited for the 17:00 open, all weekend after a Friday). Live, the close's trades are worked out in a few
+  seconds: the lines and profile come from its minutes until then. From the close to the 17:00 open the new lines
+  start at the close and the chart keeps the old ones over the day before it; today's 80% Rule fill, OPEN and day type
+  stay measured against the value in force at today's open.
+- **Alerts** run on the timeframe and own settings of the chart you switched them on from (as NinjaTrader alerts per
+  chart), so they fire at the lines that chart draws. To move them to another chart's, switch them off and on there.
+  Alerts switched on before this version run on a 5-minute engine with the symbol's settings until switched again.
 - **Settings…** opens every Toolkit setting in the Indicators dialog (above): the same 19 groups, checked the way
   the indicator's own validation does; the Toolkit reloads on Apply. Each chart's own, like the other indicators
   (the server runs one Toolkit per distinct set of settings; charts on the same settings share it), except:
@@ -115,8 +135,8 @@ server, so it draws the same lines the NinjaTrader version does and can alert wi
   is Tuesday's overnight. IB Stop Time is 0830-1500 here (NinjaTrader's default is 0830-1515), and the OVN High/Low
   lines stay from the RTH open to the 17:00 open (Delete OVN Lines At 1700-1705; NinjaTrader's 1500-1505).
 - Profile: Day, Week, Month or Year is also a quick switch in the menu.
-- Alerts: "Alerts to Discord/phone" turns on the Toolkit's own level alerts for that symbol (from a 5m engine on
-  the symbol's alert settings; its storm cap applies). How levels alert is its Level Alert Mode setting (Cross by
+- Alerts: "Alerts to Discord/phone" turns on the Toolkit's own level alerts for that symbol (on the chart's timeframe
+  and own settings, with the symbol's alert settings; its storm cap applies). How levels alert is its Level Alert Mode setting (Cross by
   default). Off by default.
   Turned back on, they start afresh: nothing that happened while they were off is sent.
 - API: `GET /api/amt` gives the settings schema, the defaults and the current changes: every chart's (`overrides`)

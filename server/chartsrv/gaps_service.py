@@ -27,7 +27,7 @@ from .models import Bar
 from .sessions import session_start
 from .store import iter_bars_1m
 from .studies import RthClock
-from .tpo_service import chart_bars
+from .tpo_service import BarBuilder, chart_bars
 
 log = logging.getLogger(__name__)
 DAYS_DEFAULT = 90
@@ -94,12 +94,15 @@ def check_hours(s: dict, instruments: dict):
 
 
 class GapWatch:
-    """One symbol's alerting engine on 1-minute bars (cfg["rth"]: the instrument's regular hours only)."""
+    """One symbol's alerting engine on the bars of the chart its alerts were switched on from (cfg["minutes"], its
+    timeframe; cfg["rth"]: its regular hours only), as that chart's Gap table runs it: the same open, RTH close, size,
+    fill and bars to fill. A config from before the timeframe was kept: 1-minute bars."""
 
     def __init__(self, cfg: dict, rth=None):
         self.cfg = cfg
         self.engine = gaps.engine_for(own_hours(gaps.settings({k: cfg[k] for k in gaps.DEFAULTS}), rth))
         self.hours = RthClock(rth) if rth and cfg.get("rth") else None   # a config without the flag: all hours
+        self.bars = BarBuilder(max(1, int(cfg.get("minutes") or 1)), rth if self.hours else None)
         self.bar = -1
         self.t: int | None = None
         self.gap_t: int | None = None   # the minute its newest gap opened in
@@ -107,14 +110,12 @@ class GapWatch:
         self.pending: list[tuple] = []   # (minute, live, hold) of each update that came while it loaded (on_minute)
 
     def add(self, b: Bar) -> gaps.GapUpdate | None:
-        if self.hours and self.hours.day(b.t) is None:
-            return None             # outside the regular hours of the RTH chart it was switched on from
-        if self.t is None or b.t > self.t:
-            self.bar += 1
-            self.t = b.t
-        elif b.t < self.t:
-            return None             # a late print for a minute already passed
-        u = self.engine.Update(self.bar, ct(b.t + 60_000), b.o, b.h, b.l, b.c)
+        got = self.bars.add(b)      # None: outside the RTH chart's hours, or a late print for a minute already passed
+        if got is None:
+            return None
+        self.bar, _, close, o, h, low, c = got
+        self.t = b.t
+        u = self.engine.Update(self.bar, ct(close), o, h, low, c)   # the chart bar so far, as NinjaTrader on each price
         if u.NewGap is not None:
             self.gap_t = b.t
         return u
@@ -184,21 +185,25 @@ class GapService:
         return {sym: self.switches_of(sym) for sym in self.m.instruments}
 
     # --- charts ---------------------------------------------------------------------------------------
-    async def get(self, sym: str, minutes: int, s: dict, days: int, rth: bool = False) -> dict:
-        """rth: an RTH chart's gaps (ignored for an instrument without regular hours)."""
-        split, live = self.m.recent_minutes(sym)
-        start = session_start(int(time.time() * 1000)) - days * 86_400_000
+    async def get(self, sym: str, minutes: int, s: dict, days: int, rth: bool = False, until: int | None = None) -> dict:
+        """rth: an RTH chart's gaps (ignored for an instrument without regular hours). until: bar replay's clock, the
+        gaps as they stood then."""
+        split, live = self.m.recent_minutes(sym) if until is None else self.m.recent_minutes(sym, until)
+        start = session_start(int(time.time() * 1000) if until is None else until // 60_000 * 60_000) - days * 86_400_000
         db = self.m.store.path
         hours = self.m.instruments[sym].rth if rth else None
 
         def work():
             eng, opens = run(s, minutes, chain(iter_bars_1m(db, sym, start, split), live), rth=hours)
-            return payload(eng, opens, minutes)
+            # the hours it ran on: the chart's RTH times moved to the instrument's own (CL's 0800-1330), as its info says
+            return {**payload(eng, opens, minutes), "hours": f"{s['RthStart'] // 100:04d}-{s['RthEnd'] // 100:04d}"}
         return await asyncio.to_thread(work)
 
     # --- alerts -----------------------------------------------------------------------------------------
     def set_alerts(self, sym: str, cfg: dict):
-        """cfg: on, rth and the chart's RthStart, RthEnd and MinimumGapPoints; the alert switches are the symbol's."""
+        """cfg: on, rth and the chart's RthStart, RthEnd and MinimumGapPoints (and minutes, its timeframe: the alerts are
+        on its bars); the alert switches are the symbol's."""
+        cfg = {k: v for k, v in cfg.items() if v is not None}   # minutes not given: 1-minute bars, as before
         s = gaps.settings({k: cfg[k] for k in gaps.DEFAULTS})     # raises ValueError on bad times...
         if cfg.get("on"):   # ...or on ones its own hours make no session of (switching off: never refused)
             check_hours(s, {sym: self.m.instruments[sym]})

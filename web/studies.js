@@ -273,7 +273,7 @@ function drawAmt(ctx, size, chart, series, s) {
 
   // 80% Rule fill: the prior day's value area in each bar's own slot while the rule is active or confirmed
   if (st.show_fill) {
-    for (const [s0, e0, vah, val, conf] of d.samples || []) {
+    for (const [s0, e0, vah, val, conf] of [...(d.samples || []), ...(d.fill ? [d.fill] : [])]) {   // fill: the forming bar's
       if (vah == null || val == null) continue;
       const xa0 = XO(s0), xb0 = XO(e0), ya = Y(vah), yb = Y(val);
       const xa = xa0 == null ? null : xa0 - spacing / 2, xb = xb0 == null ? null : xb0 - spacing / 2;

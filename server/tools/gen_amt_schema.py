@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 NT_ONLY = {"AboutVersion", "AboutWebsite", "LevelsFile", "EnableSound", "AlertSound", "EnableDiscord", "DiscordWebhook",
-           "tzguard_enable"}
+           "tzguard_enable", "PdTickSessions", "ProfileTicks"}   # (the tick downloads: here the trades are stored)
 PROP = re.compile(r"^\s*public\s+([\w<>\[\],. ]+?)\s+(\w+)\s*\{")
 
 

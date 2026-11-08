@@ -182,7 +182,7 @@ def test_the_chart_header_shows_its_own_symbols_change():
     """A free-data chart of ZM1! (soybean meal) takes its change from ZM1!'s quote, not Zoom's; the live ES chart from
     ES1!'s, the key its quote has now."""
     wlsrc = (WEB / "watchlist.js").read_text().split("function createWatchlist")[0]
-    out = run_app_js(app_js("function header("), f"""
+    out = run_app_js(app_js("function symQuote(", "function header("), f"""
 const stubs = 'var els = {{}}, mk = () => ({{ textContent: "", className: "", querySelector(s) {{ return (this[s] ||= mk()); }} }});'
   + 'var $ = (s) => (els[s] ||= mk()), px = (v) => (v == null ? "" : v.toFixed(2)), S = {{}};';
 vm.runInContext({json.dumps(wlsrc)} + '\\n' + stubs + '\\n' + /*APP*/

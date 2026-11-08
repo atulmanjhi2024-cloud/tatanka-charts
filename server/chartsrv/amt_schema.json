@@ -1834,8 +1834,9 @@
   "name": "amt_vauto",
   "group": "14. Naked POCs",
   "order": 224,
-  "label": "Auto Bin Size (tick)",
-  "type": "bool"
+  "label": "Auto Bin Size (profile rows)",
+  "type": "bool",
+  "description": "Naked POCs from the volume profile's rows, so each sits on its profile's POC. Off with Use Manual Bin Size: the size set."
  },
  {
   "name": "amt_vres",

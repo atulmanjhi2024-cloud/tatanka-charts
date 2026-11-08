@@ -11,7 +11,7 @@ from collections import deque
 from datetime import datetime, timedelta
 
 from .amt import (DMIN, Bar, DailyHistory, Engine, Frame, LevelAlertTracker, LineItem, Settings, levels_from_prices,
-                  trading_date, valid)
+                  trading_date, valid, week)
 from .models import Bar as MinuteBar
 from . import sessions
 from .sessions import CT, SessionClock
@@ -20,6 +20,7 @@ MACRO_MINUTES = 30
 HISTORY_DAYS_KEPT = 20      # past days' IB / prior-day lines kept on the chart (as the C# Commit)
 SAMPLE_DAYS_KEPT = 20
 PD_TRADE_DAYS = 30          # prior-day value from trades for days this recent (older ones: past the lines kept)
+TRADE_DAYS_KEPT = 8         # the current Session or Weekly profile's trades, per minute, kept this long
 
 
 def ct(ms: int) -> datetime:
@@ -102,7 +103,6 @@ class AmtRunner:
         self.next_commit = 0          # position in chart.keys of the next bar to commit
         self.index = -1
         self.prev_frame: Frame | None = None
-        self.pd_before_roll = None
         self.history: list = []       # past days' IB / prior-day lines, as LineItems
         self.history_rev = 0
         self.samples: deque = deque()  # (start, end, vah, val, confirmed) where the 80% Rule fill shows
@@ -123,6 +123,9 @@ class AmtRunner:
         # windows asked for and not known yet (the hub works them out, then loads the runner again)
         self.pd_values: dict[tuple[int, int], list] = {}
         self.pd_missing: set[tuple[int, int]] = set()
+        # the current Session or Weekly profile from its trades (v1.2.2): minute start (ms) -> price -> volume, stored
+        # ones from the period's start (load_trades) then live (add_trade)
+        self.minute_trades: dict[int, dict[float, float]] = {}
         self.commit_visuals = False   # tests: draw every committed frame too
 
     # --- inputs ----------------------------------------------------------------------------------------
@@ -181,6 +184,49 @@ class AmtRunner:
         f = sessions.fold_trade_date(d.date(), self.calendar) if self.calendar else d.date()
         return d if f == d.date() else datetime(f.year, f.month, f.day)
 
+    # --- trades: the current Session or Weekly profile -------------------------------------------------------
+    def period_start(self, now_ms: int) -> int | None:
+        """The first minute (ms) of the profile current at now_ms when it is drawn from trades (Session, Weekly), else
+        None: the week's Sunday 17:00 open, or the Session Time window that began last."""
+        S = self.S
+        if not S.mvp_master or S.mvp_tf_mode not in ("Session", "Weekly"):
+            return None
+        now = ct(now_ms)
+        if S.mvp_tf_mode == "Weekly":
+            w = week(self.trade_date(now))
+            return epoch_ms(w - timedelta(hours=7))
+        rng = S.mvp_sess_time.split(":")[0].split("-")
+        a = int(rng[0][:2]) * 60 + int(rng[0][2:4])
+        start = datetime(now.year, now.month, now.day) + timedelta(minutes=a)
+        if start > now:
+            start -= timedelta(days=1)
+        return epoch_ms(start)
+
+    def wants_trades(self) -> bool:
+        return self.S.mvp_master and self.S.mvp_tf_mode in ("Session", "Weekly")
+
+    def add_trade(self, ts: int, price: float, size: float):
+        """A trade (live, or stored: one minute's volume at a price)."""
+        if size <= 0:
+            return
+        k = ts // 60_000 * 60_000
+        m = self.minute_trades.get(k)
+        if m is None:
+            m = self.minute_trades[k] = {}
+            if len(self.minute_trades) % 500 == 0:
+                cut = k - TRADE_DAYS_KEPT * 86_400_000
+                for old in [x for x in self.minute_trades if x < cut]:
+                    del self.minute_trades[old]
+        m[price] = m.get(price, 0.0) + size
+
+    def _minute_rows(self, start: datetime, volume: float):
+        """Engine.MinuteTrades: the minute's trades when they add up to its 1-minute bar's volume, else None."""
+        m = self.minute_trades.get(epoch_ms(start))
+        if not m or volume <= 0:
+            return None
+        total = sum(m.values())
+        return sorted(m.items()) if volume * .99 <= total <= volume * 1.01 else None
+
     # --- driving the engine ------------------------------------------------------------------------------
     def _feed_daily(self, td: datetime):
         keys = self.day_keys   # sorted: start after the last day fed, not at the first (90 days, every bar)
@@ -227,6 +273,7 @@ class AmtRunner:
             self.engine = Engine(self.S, self.symbol, self.tick, first[-1].c, self.minutes)
             self.engine.Calendar, self.engine.RthSession = self.calendar, self.rth_session
             self.engine.TradeValue = self.trade_value
+            self.engine.MinuteTrades = self._minute_rows
             if self.record is not None:
                 self.record.append(("E", self.symbol, self.tick, first[-1].c, self.minutes))
             if self.levels:
@@ -286,27 +333,24 @@ class AmtRunner:
         return notices
 
     def _keep_history(self, f: Frame):
-        """C# Commit: keep each finished day's IB and prior-day lines; pd lines as they stood before 15:00."""
+        """C# Commit: keep each finished day's IB and prior-day lines. A pd line that switched at the close (it starts
+        there from then on) is kept as it stood over the day before it, at once."""
         prev = self.prev_frame
-        rolling = ("pdHigh", "pdLow", "pdOpen")
         same_day = prev is not None and self.trade_date(prev.Bar.Start) == self.trade_date(f.Bar.Start)
-        if same_day and self.pd_before_roll is None:
-            for x in (l for l in prev.Lines if l.Name in rolling):
+        keep = []
+        if same_day:
+            for x in (l for l in prev.Lines if l.Name.startswith("pd")):
                 y = next((l for l in f.Lines if l.Name == x.Name), None)
-                if y is not None and abs(y.Price - x.Price) > 1e-9:
-                    self.pd_before_roll = [l for l in prev.Lines if l.Name in rolling]
-                    break
-        if prev is not None and not same_day:
-            day_lines = [x for x in prev.Lines if x.Name.startswith("IB ") or x.Name == "dOpen"
-                         or (x.Name.startswith("pd") and (self.pd_before_roll is None or x.Name not in rolling))]
-            if self.pd_before_roll is not None:
-                day_lines += self.pd_before_roll
-            for x in day_lines:   # unlabeled copies of name, price, span, color, width and style, as in C#
-                c = LineItem()
-                c.Name, c.Group, c.Price, c.Start, c.End, c.Color, c.Width, c.Style = x.Name, None, x.Price, x.Start, x.End, x.Color, x.Width, x.Style
-                c.Offset, c.Size, c.Extend, c.Label, c.TextColor = 2, "Normal", "None", False, 0
-                self.history.append(c)
-            self.pd_before_roll = None
+                if y is not None and y.Start != x.Start:
+                    keep.append(x)
+        elif prev is not None:
+            keep = [x for x in prev.Lines if x.Name.startswith("IB ") or x.Name == "dOpen" or x.Name.startswith("pd")]
+        for x in keep:   # unlabeled copies of name, price, span, color, width and style, as in C#
+            c = LineItem()
+            c.Name, c.Group, c.Price, c.Start, c.End, c.Color, c.Width, c.Style = x.Name, None, x.Price, x.Start, x.End, x.Color, x.Width, x.Style
+            c.Offset, c.Size, c.Extend, c.Label, c.TextColor = 2, "Normal", "None", False, 0
+            self.history.append(c)
+        if keep:
             self.history = [x for x in self.history if (f.Bar.Start - x.End).total_seconds() / 86400 <= HISTORY_DAYS_KEPT]
             self.history_rev += 1
 
@@ -398,6 +442,9 @@ class AmtRunner:
             out["history"] = [self._line(li) for li in self.history]
         if samples:   # runs of bars where the 80% Rule fill shows; resent whole when they change (small)
             out["samples"] = [[s, e, vah, val, conf] for s, e, vah, val, conf in self.samples]
+        # the forming bar's, as NinjaTrader draws the preview's sample (the dashboard says ACTIVE or CONFIRMED already)
+        out["fill"] = ([epoch_ms(f.Bar.Start), epoch_ms(f.Bar.End), f.VaHigh, f.VaLow, f.RuleConfirmed]
+                       if f.RuleActive or f.RuleConfirmed else None)
         if self.S.vwap_enable:   # one point a bar: only the ones the client lacks, all of them when it lacks too many
             new = None if vwap_known is None else self.vwap_total - vwap_known
             if new is None or not 0 <= new <= len(self.vwap):

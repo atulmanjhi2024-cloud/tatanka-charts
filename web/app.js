@@ -1231,14 +1231,17 @@ function vpMerge(k, d, sym) {
 // One request per kind at a time; the server keeps what it built, so asking again is cheap.
 async function vpRequest(k, reset) {
   if (reset) { S.vp[k] = null; S.vpErr[k] = ''; delete vpHeld[k]; }
-  if (!S.st[k] || S.ext || S.replay || !indReady(k) || !S.instruments[S.symbol]) { S.vp[k] = null; vpPrims[k].update(); renderVpInfo(k); return; }
+  if (!S.st[k] || S.ext || !indReady(k) || !S.instruments[S.symbol]) { S.vp[k] = null; vpPrims[k].update(); renderVpInfo(k); return; }
   if (vpBusy[k]) { vpBusy[k] = 'again'; return; }
   vpBusy[k] = true;
-  const sym = S.symbol, h = vpHeld[k], q = new URLSearchParams({ symbol: sym, s: JSON.stringify(S.vpSet[k]) });
+  const sym = S.symbol, h = vpHeld[k], q = new URLSearchParams({ symbol: sym, s: JSON.stringify(S.vpSet[k]) }), view = `${!!S.replay && S.replay.jumps} ${S.rth}`;
   if (h && h.sym === sym && h.byStart.size) { q.set('key', h.key); q.set('have', [...h.byStart.keys()].join(',')); }
+  if (S.rth && k !== 'prof') q.set('rth', 'true');   // an RTH chart's AAVP and PVP: its regular hours' minutes
+  replayUntil(q);
+  if (S.replay) q.set('rid', REPLAY_RID);
   try {
     const d = await api('GET', `/api/vp/${k}?${q}`);
-    if (sym === S.symbol && S.st[k]) { S.vp[k] = vpMerge(k, d, sym); S.vpErr[k] = ''; }
+    if (sym === S.symbol && S.st[k] && view === `${!!S.replay && S.replay.jumps} ${S.rth}`) { S.vp[k] = vpMerge(k, d, sym); S.vpErr[k] = ''; }
   } catch (e) {
     if (sym === S.symbol) S.vpErr[k] = e.message;
   } finally {
@@ -1271,7 +1274,9 @@ function renderVpInfo(k) {
       : `${d.profiles.length} ${o.Period.toLowerCase()} profile${d.profiles.length > 1 ? 's' : ''}; the latest from ${p.window[0]}, ${p.rows.length} rows of ${p.tpr} tick${p.tpr > 1 ? 's' : ''}.`;
   } else {
     const n = d.sessions.filter((p) => p.approx).length;
-    el.textContent = `${d.sessions.length} session${d.sessions.length === 1 ? '' : 's'} ${o.SessionStart}-${o.SessionEnd} ${['ExchangeTemplate', 'Chart', 'Central'].includes(o.SessionTimeZone) ? 'CT' : o.SessionTimeZone}, from every trade stored here`
+    const ct = ['ExchangeTemplate', 'Chart', 'Central'].includes(o.SessionTimeZone);   // in CT: moved to its own hours, as the server
+    const hours = ct ? ownHours(`${o.SessionStart}-${o.SessionEnd}`.replace(/:/g, '')).replace(/(\d\d)(\d\d)-(\d\d)(\d\d)/, '$1:$2-$3:$4') : `${o.SessionStart}-${o.SessionEnd}`;
+    el.textContent = `${d.sessions.length} session${d.sessions.length === 1 ? '' : 's'} ${hours} ${ct ? 'CT' : o.SessionTimeZone}, from every trade stored here`
       + (n ? `; ${n} with minutes from 1-minute bars (no trades stored then: keep the NinjaTrader add-on connected for every trade).` : '.');
   }
 }
@@ -1433,15 +1438,34 @@ let amtSent = '';
 function amtRequest() {
   S.amt = null;
   amtSent = S.amtServer.schema ? amtKey() : Object.keys(amtOwn()).length ? '?' : '';
-  const own = amtSent && amtSent !== '?' ? { set: amtEff() } : {};
-  if (S.st.amt && S.subId && !S.ext) send({ op: 'amt', id: S.subId, symbol: S.symbol, minutes: amtMinutes(), ...own });
+  amtReplayAgain = false;
+  amtSend();
   renderAmtDash();
   amtPrim.update();
+}
+// Replaying, the server's runner of this chart is carried to the replay clock at each ask: one at a time (a first load
+// takes seconds), the latest clock asked next.
+let amtReplayWait = 0, amtReplayAgain = false;
+function amtSend() {
+  const own = amtSent && amtSent !== '?' ? { set: amtEff() } : {};
+  if (!S.st.amt || !S.subId || S.ext) return;
+  amtReplayWait = S.replay ? Date.now() : 0;
+  send({ op: 'amt', id: S.subId, symbol: S.symbol, minutes: amtMinutes(), ...own, ...(S.replay ? { until: Math.round(S.replay.at) } : {}) });
+}
+function amtReplayAsk() {
+  if (!S.st.amt || !S.replay) return;
+  if (amtReplayWait && Date.now() - amtReplayWait < 120_000) { amtReplayAgain = true; return; }
+  amtSend();
+}
+function amtAnswered() {
+  amtReplayWait = 0;
+  if (amtReplayAgain) { amtReplayAgain = false; amtReplayAsk(); }
 }
 function amtFollow() { if (S.st.amt && amtKey() !== amtSent) amtRequest(); }   // its settings changed
 function amtMerge(m) {
   const d = m.data, keep = S.amt;
-  if (m.full || !keep) S.amt = { ...d, past: d.past || [], history: d.history || [], samples: d.samples || [], vwap: d.vwap || [] };
+  if (!m.full && !keep) return;   // only what changed, of a run asked for again since (new settings): its full answer comes
+  if (m.full) S.amt = { ...d, past: d.past || [], history: d.history || [], samples: d.samples || [], vwap: d.vwap || [] };
   else {   // only what changed is sent; keep the rest
     S.amt = { ...keep, ...d };
     for (const k of ['style', 'past', 'history', 'samples', 'vwap']) if (!d[k]) S.amt[k] = keep[k];
@@ -1575,7 +1599,8 @@ async function amtPatch(d, sym = S.symbol) {
 $('#amt-alerts').onchange = async (e) => {
   const on = e.target.checked;
   try {
-    await api('PUT', `/api/amt/alerts/${S.symbol}`, { on });
+    // on this chart's bars and own settings: the alerts are on what it draws (NinjaTrader alerts per chart)
+    await api('PUT', `/api/amt/alerts/${S.symbol}`, { on, minutes: amtMinutes(), ...(Object.keys(amtOwn()).length ? { set: amtEff() } : {}) });
     toast(on ? `AMT alerts on for ${S.symbol}` : `AMT alerts off for ${S.symbol}`);
     await loadAmtServer();
   } catch (err) { e.target.checked = !on; fail(err); }
@@ -1659,13 +1684,14 @@ async function tpoRequest(reset) {
   if (!S.st.tpo || !tpoSpecOk() || !S.instruments[S.symbol] || !indReady('tpo')) { S.tpo = null; tpoPrim.update(); renderTpoInfo(); return; }
   if (tpoBusy) { tpoAgain = true; return; }
   tpoBusy = true;
-  const key = `${S.symbol} ${S.spec} ${S.rth}`;
+  const key = studyView();
   const q = new URLSearchParams({ symbol: S.symbol, spec: S.spec });
   if (S.rth) q.set('rth', 'true');
   for (const [k, v] of Object.entries(S.tpoSet)) if (!TPO_DRAWING.includes(k)) q.set(k, String(v));
+  replayUntil(q);
   try {
     const d = await api('GET', `/api/tpo?${q}`);
-    if (key === `${S.symbol} ${S.spec} ${S.rth}` && S.st.tpo) { S.tpo = d; S.tpoError = ''; }
+    if (key === studyView() && S.st.tpo) { S.tpo = d; S.tpoError = ''; }
   } catch (e) {
     S.tpo = null;
     S.tpoError = e.message;
@@ -1682,7 +1708,8 @@ function renderTpoInfo() {
   if (!tpoSpecOk()) { el.textContent = 'Needs a minute or hour chart.'; return; }
   if (S.tpoError) { el.textContent = S.tpoError; return; }
   const d = S.tpo, t = inst().tick_size;
-  el.textContent = !d ? 'Loading…' : d.step ? `Rows ${px(d.step)} (${Math.round(d.step / t)} ticks), ${d.minutes}-minute bars, ${ownHours(S.tpoSet.SessionTime)} CT.` : 'Waiting for bars.';
+  const step = d?.profiles?.at(-1)?.step ?? d?.step;   // the newest profile's rows (the engine's can be the next day's already)
+  el.textContent = !d ? 'Loading…' : step ? `Rows ${px(step)} (${Math.round(step / t)} ticks), ${d.minutes}-minute bars, ${ownHours(S.tpoSet.SessionTime)} CT.` : 'Waiting for bars.';
 }
 
 // ---- Gap Analysis: RTH start and end are NinjaTrader's HHmmss numbers (83000 = 08:30:00 CT) ----------------------------
@@ -1704,13 +1731,14 @@ async function gapRequest(reset) {
   }
   if (gapBusy) { gapAgain = true; return; }
   gapBusy = true;
-  const key = `${S.symbol} ${S.spec} ${S.rth}`;
+  const key = studyView();
   const q = new URLSearchParams({ symbol: S.symbol, spec: S.spec, RthStart: S.gapSet.RthStart, RthEnd: S.gapSet.RthEnd });
   if (S.rth) q.set('rth', 'true');
   for (const k of GAP_SERVER) q.set(k, String(S.gapSet[k]));
+  replayUntil(q);
   try {
     const d = await api('GET', `/api/gaps?${q}`);
-    if (key === `${S.symbol} ${S.spec} ${S.rth}` && S.st.gap) {
+    if (key === studyView() && S.st.gap) {
       d.curBar = d.bar;
       d.curT = d.t;
       S.gaps = d;
@@ -1729,11 +1757,11 @@ async function gapRequest(reset) {
 }
 // Bars the chart has from the server's current bar on (the one it computed, then any newer) fill gaps here.
 function gapCatchUp() {
-  const d = S.gaps;
-  if (!d || d.t == null || !S.bars.length) return;
+  const d = S.gaps, cut = S.replay ? S.replay.at : Infinity;   // replaying: never a bar from after its clock (the bars
+  if (!d || d.t == null || !S.bars.length) return;            // shown can still be the live ones, or a later clock's)
   const i0 = barIndexFrom(S.bars, d.t);
   if (i0 < 0 || S.bars[i0].t !== d.t) return;
-  for (let i = i0; i < S.bars.length; i++) gapLiveBar(d, S.bars[i], d.bar + (i - i0));
+  for (let i = i0; i < S.bars.length && S.bars[i].t < cut; i++) gapLiveBar(d, S.bars[i], d.bar + (i - i0));
 }
 function renderGapInfo() {
   const el = $('#gap-info');
@@ -1744,7 +1772,7 @@ function renderGapInfo() {
   const d = S.gaps, a = S.gapAlerts[S.symbol];
   const alerts = a?.on ? ` Alerts: ${[a.new && 'new gap', a.fill && 'fill'].filter(Boolean).join(' + ') || 'none'}${a.rth ? ' (RTH)' : ''}.`
     : a?.error ? ` Alerts off: ${a.error}` : '';   // on, but its times make no session on its hours (the server's why)
-  el.textContent = !d ? 'Loading…' : `${d.gaps.length} gaps in ${S.gapSet.days} days, ${d.gaps.filter((g) => g.fb < 0).length} open. RTH ${gapRth()} CT.${alerts}`;
+  el.textContent = !d ? 'Loading…' : `${d.gaps.length} gaps in ${S.gapSet.days} days, ${d.gaps.filter((g) => g.fb < 0).length} open. RTH ${d.hours || gapRth()} CT.${alerts}`;
 }
 function renderGapMenu() {
   $('#gap-alerts').checked = !!S.gapAlerts[S.symbol]?.on;
@@ -1768,6 +1796,7 @@ async function putGapAlerts(on, sym = S.symbol, rth = S.rth) {
   gapAlertsPut++;
   const a = await api('PUT', `/api/gaps/alerts/${sym}`, {
     on, RthStart: g.RthStart, RthEnd: g.RthEnd, MinimumGapPoints: g.MinimumGapPoints, rth: !!rth && !!S.instruments[sym]?.rth,
+    minutes: ((m) => (m ? Number(m[1]) * (m[2] === 'h' ? 60 : 1) : 1))(/^(\d+)([mh])$/.exec(S.spec || '')),   // this chart's bars: the alerts say what its table does
   });
   S.gapAlerts[sym] = a;   // into the alerts as they are now (a GET's answer may have replaced them meanwhile)
 }
@@ -2065,8 +2094,9 @@ async function ifRequest() {
   const sym = S.symbol, was = S.ifData, heard = ifHeard;
   ifFetched = Date.now();
   try {
-    const d = await api('GET', `/api/ifthen/${sym}?atr=${S.ifSet.AtrLength}`);
-    if (sym !== S.symbol) return;
+    const rth = S.rth;
+    const d = await api('GET', `/api/ifthen/${sym}?atr=${S.ifSet.AtrLength}${rth ? '&rth=true' : ''}`);
+    if (sym !== S.symbol || rth !== S.rth) return;
     // a block broadcast while this was answered: the answer may have been read before it was saved
     const late = ifHeard !== heard && S.ifData;
     S.ifData = late ? { ...d, rows: late.rows, updated: late.updated } : d;
@@ -2089,8 +2119,17 @@ function renderIfInfo() {
 }
 
 // ---- Level Lines: NinjaTrader's OnRender (studies.js); the range and levels are per symbol ------------------------------
+// A line's price as its label shows it: on a tick, as the instrument writes prices; between ticks (a range's mid on an
+// odd number of ticks, a level typed off the tick) its own price, not the tick it rounds to (Level Lines v1.1.1).
+function llPrice(p) {
+  const t = inst().tick_size, n = p / t;
+  if (!t || Math.abs(n - Math.round(n)) <= 1e-6 || bondTick(inst().symbol)) return px(Math.round(n) * t);
+  const d = inst().decimals ?? 2, s = Number(p).toFixed(Math.max(d, 6)).replace(/0+$/, '');
+  const f = s.split('.')[1] || '';
+  return f.length < d ? Number(p).toFixed(d) : s;
+}
 const llPrim = new LevelLinesPrimitive(() => (S.st.lines && !S.ext && indReady('lines')
-  ? { s: S.llSet, fmt: (p) => px(Math.round(p / inst().tick_size) * inst().tick_size) } : null));
+  ? { s: S.llSet, fmt: llPrice } : null));
 candles.attachPrimitive(llPrim);
 function renderLlInfo() {
   const el = $('#ll-info');
@@ -2314,10 +2353,11 @@ async function fetchRange() {
     const i0 = Math.min(Math.max(Math.floor(r.from), 0), n - 1), i1 = Math.min(Math.max(Math.ceil(r.to), 0), n - 1);
     q = `start=${S.bars[i0].t}&end=${i1 + 1 < n ? S.bars[i1 + 1].t : Date.now() + 60000}&rth=${S.rth}`;   // RTH: not the nights between the sessions
   } else q = `sessions=${mode === 'c5' ? 5 : 20}`;
-  const id = ++rangeReq, sym = S.symbol;
+  if (S.replay) q += `&until=${Math.round(S.replay.at)}`;   // nothing traded after the replay clock
+  const id = ++rangeReq, sym = S.symbol, view = studyView();
   try {
     const p = await api('GET', `/api/profile?symbol=${sym}&${q}`);
-    if (id === rangeReq && sym === S.symbol) { S.rangeProfile = p && p.v ? p : null; rangePrim.update(); }
+    if (id === rangeReq && view === studyView()) { S.rangeProfile = p && p.v ? p : null; rangePrim.update(); }
   } catch { /* keep the last one */ }
 }
 chart.timeScale().subscribeVisibleLogicalRangeChange(() => { if (S.st.right === 'visible') scheduleRange(); });
@@ -2556,7 +2596,7 @@ document.addEventListener('pointerdown', (e) => { if (!$('#tz-menu').hidden && !
 window.addEventListener('storage', (e) => { if (e.key === 'timeZone' && (e.newValue || 'local') !== ax.pick) setChartZone(e.newValue || 'local', false); });   // another chart frame
 function legend(b) {
   const el = $('#legend');
-  const sp = `${specLabel(S.spec)}${S.rth && (!S.ext || exch().rth) ? ' RTH' : ''}${S.ext?.source ? (extSeries() ? ` · ${S.ext.source.toUpperCase()}` : S.ext.source === 'alpaca' ? ' · real time' : S.ext.source === 'ibkr' ? (S.ext.feed === 'live' ? ' · IBKR real time' : ' · IBKR delayed') : ' · delayed') : ''}`;
+  const sp = `${specLabel(S.spec)}${S.rth && (!S.ext || exch().rth) ? ' RTH' : ''}${S.ext?.source ? (S.ext.source === 'formula' ? ' · formula' : extSeries() ? ` · ${S.ext.source.toUpperCase()}` : S.ext.source === 'alpaca' ? ' · real time' : S.ext.source === 'ibkr' ? (S.ext.feed === 'live' ? ' · IBKR real time' : ' · IBKR delayed') : ' · delayed') : ''}`;
   legendStudies(b);
   el.textContent = `${S.replay ? 'REPLAY  ' : ''}${S.symbol} ${sp}${S.loadNote ? ` · ${S.loadNote}` : ''}`;   // just what the chart is: no O H L C V Δ line
   dataWindow(b);
@@ -2597,7 +2637,7 @@ function legendRows(b) {
     let text = it.name, color = '';
     if (it.id === 've') { text = 'VWAP (session)'; if (b?.st?.[0] != null) text += ` ${px(b.st[0])}`; color = '#ffb300'; }
     else if (it.id === 'vr') { text = 'VWAP (RTH)'; if (b?.st?.[2] != null) text += ` ${px(b.st[2])}`; }
-    else if (it.id === 'hema') { const v = S.hemaVals.length ? at(S.hemaVals) : NaN; text = `${hemaTitle()}${Number.isFinite(v) ? ` ${px(v)}` : ''}`; color = hemaStyle().color; }
+    else if (it.id === 'hema') { const v = S.hemaVals.length ? at(S.hemaVals) : NaN; text = `${hemaTitle()}${Number.isFinite(v) ? ` ${pxTick(v)}` : ''}`; color = hemaStyle().color; }
     else if (it.id === 'dsma') {   // each plot's value in its color, as the data box has them
       const p = dsmaPeriods();
       rows.push({ id: it.id, text: 'Tatanka Daily SMA x4', eye: true, parts: [[`Tatanka Daily SMA x4 ${p.join(' ')}`, ''],
@@ -2750,10 +2790,11 @@ let levelLines = [];
 function drawLevels() {
   levelLines.forEach((l) => candles.removePriceLine(l));
   levelLines = [];
-  const lv = S.levels[S.symbol], meta = $('#lv-meta');
+  const rp = S.replay, lv = rp ? (rp.lvSym === S.symbol ? rp.levels : null) : S.levels[S.symbol], meta = $('#lv-meta');
   meta.classList.remove('stale');
-  if (!S.st.lv) { meta.textContent = ''; return; }   // Daily levels off: the AMT Toolkit's levels say where they are from
-  if (!lv) { meta.textContent = isExtSym(S.symbol) ? '' : 'no daily levels'; return; }
+  if (!S.st.lv || S.st.amt) { meta.textContent = ''; return; }   // Daily levels off, or the AMT Toolkit drawing its own levels (its order: file, link, paste): theirs say where they are from
+  if (rp) replayLevels();   // those of the replay's day: drawn again when they come
+  if (!lv) { meta.textContent = isExtSym(S.symbol) ? '' : rp ? (rp.lvSym === S.symbol ? 'no daily levels kept for that day' : 'loading levels…') : 'no daily levels'; return; }
   const made = lv.created ? `${ax.full.format(Date.parse(lv.created))} ${zs(Date.parse(lv.created))}` : lv.date;   // when they were made, else their day
   meta.textContent = made ? `${lv.label} · ${made}` : lv.label;
   if (!S.st.lv || S.st.amt) return;   // the AMT Toolkit draws the levels itself, with zones
@@ -2766,7 +2807,7 @@ function drawLevels() {
 // ---- header -------------------------------------------------------------------------------
 function header() {
   // S.lastBar is this symbol's: subscribe() clears another symbol's bars (barsClear) before this one's come
-  const last = S.lastBar?.c, q = S.quotes[wlKey(S.symbol, S.instruments)];   // ZM1!'s, not Zoom's; the live ES's: ES1!
+  const last = S.lastBar?.c, q = symQuote(S.symbol);   // ZM1!'s, not Zoom's; the live ES's: ES1!; a formula's from its parts
   $('#q-last').textContent = px(last);
   const chg = $('#q-chg'), abs = chg.querySelector('.abs'), pct = chg.querySelector('.pct');
   // in replay the live change means nothing; nor does the simulator's invented close beside a free-data chart's real bars
@@ -2878,21 +2919,48 @@ $('#tf-custom').onsubmit = (e) => {
 };
 
 // ---- symbols with no live chart here: stocks, ETFs, indices, forex, crypto (Yahoo, delayed) and FRED series ---------
+const FORMULA_SYM = /(?:FRED:|EIA:|DATA:)?[A-Za-z0-9_.!&^=]+/g;
+const FORMULA_MAX = 10;   // symbols in a formula the server charts (formula.MAX_SYMBOLS)
+// The server's grammar for a formula (formula.compile_formula): + - * / and parentheses over symbols and numbers.
+function formulaOk(f) {
+  const OPEN = '\x28', CLOSE = '\x29';   // the parentheses, written so (a test reads this file's declarations by its brackets)
+  const toks = f.match(/(?:FRED:|EIA:|DATA:)?[A-Za-z0-9_.!&^=]+|[+\-*/()]/g) || [];
+  if (toks.join('') !== f) return false;
+  let i = 0;
+  const atom = () => {
+    const t = toks[i++];
+    if (t == null || t === '*' || t === '/' || t === CLOSE) return false;
+    if (t === OPEN) return sum() && toks[i++] === CLOSE;
+    return t === '-' || t === '+' ? atom() : true;
+  };
+  const mul = () => { if (!atom()) return false; while (toks[i] === '*' || toks[i] === '/') { i++; if (!atom()) return false; } return true; };
+  const sum = () => { if (!mul()) return false; while (toks[i] === '+' || toks[i] === '-') { i++; if (!mul()) return false; } return true; };
+  return sum() && i === toks.length;
+}
+// Typed in the quick switch: a formula, unless it is words joined by hyphens ("nasdaq-100", "e-mini") with a search
+// result there to take instead; parts the app knows (ES1!-NQ1!, FRED:DGS10-FRED:DGS2, watchlist symbols) are one.
+const quickFormula = (v) => wlIsFormula(v) && (/[/*+()]/.test(v) || wlTokens(wlBare(wlNorm(v)).toUpperCase())
+  .every((t) => /[!:]/.test(t) || !!S.instruments[t] || !!S.quotes?.[t]));
 // A watchlist or search symbol as the chart takes it: "ES1!" or "ES" is the live ES chart; a root no stock has ("6E",
 // "ZB": the hello's only_futures) is its future, 6E1!, as the server charts and quotes it; any other single symbol
-// charts from free data; a formula doesn't chart.
+// charts from free data; a formula ("VIXM/VIXY", "ES1!/NQ1!") charts from its parts' bars (formula.py).
 function chartSym(sym) {
   const b = wlBare(wlNorm(String(sym || ''))).trim(), k = wlRoot(b);   // in capitals first: "fred:" is FRED's, not an exchange
   if (S.instruments[k]) return k;
   if (S.onlyFutures?.has(b)) return `${b}1!`;
   if (S.catalog?.[k] && WL_FUT.test(b)) return b;   // RTY1!: added when opened (MET alone stays MetLife)
-  if (!b || wlIsSection(b) || wlIsFormula(b) || wlTokens(b).length !== 1 || !WL_SYM.test(b)) return null;
+  if (b && !wlIsSection(b) && wlIsFormula(b)) {   // a formula that reads as one; a live chart's root is its symbol (ES/NQ: ES1!/NQ1!)
+    const f = wlAsFuture(b.replace(/\s+/g, ''), S.onlyFutures).replace(FORMULA_SYM, (t) => (S.instruments[t] ? `${t}1!` : t));
+    return f.length <= 120 && wlTokens(f).length && new Set(wlTokens(f)).size <= FORMULA_MAX && formulaOk(f) ? f : null;
+  }
+  if (!b || wlIsSection(b) || wlTokens(b).length !== 1 || !WL_SYM.test(b)) return null;
   return b;
 }
 const isExtSym = (sym) => !S.instruments[sym];
 const EXT_SPECS = { fred: ['1D', '1W', '1M'], eia: ['1D', '1W', '1M'], data: ['1D', '1W', '1M'], yahoo: ['1m', '5m', '15m', '30m', '1h', '1D', '1W', '1M'] };
-const extSource = (sym) => (sym.startsWith('FRED:') ? 'fred' : sym.startsWith('EIA:') ? 'eia' : sym.startsWith('DATA:') ? 'data' : 'yahoo');
-const extSeries = () => wlSeries(S.ext?.source);   // FRED or EIA: a line of values, daily or longer
+const extSource = (sym) => (wlIsFormula(sym) ? (wlTokens(sym).some((t) => /^(FRED|EIA|DATA):/.test(t)) ? 'fred' : 'yahoo')   // its parts'
+  : sym.startsWith('FRED:') ? 'fred' : sym.startsWith('EIA:') ? 'eia' : sym.startsWith('DATA:') ? 'data' : 'yahoo');
+const extSeries = () => wlSeries(S.ext?.source) || !!S.ext?.line;   // FRED or EIA (or a formula of them): a line of values
 const specOk = (spec) => !S.ext || ((S.ext.custom ?? extSource(S.symbol) === 'yahoo')   // built from shorter bars
   && ((/^\d+[mh]$/.test(spec) && specSeconds(spec) <= 86400) || calSpec(spec))) || (S.ext.specs || EXT_SPECS[extSource(S.symbol)]).includes(spec);
 // Studies drawn from this app's own trades or its futures' settings: not on a free-data chart.
@@ -2976,9 +3044,21 @@ function extBarEnd(t) {
   d.setUTCDate(d.getUTCDate() - 1);   // a day's session opens at 17:00 CT the evening before
   return ctInputToMs(`${d.toISOString().slice(0, 10)}T17:00`);
 }
+// A symbol's quote; a formula's worked out from its parts' (as the watchlist's): as new as its newest part, simulated
+// when one is.
+function symQuote(sym) {
+  if (!wlIsFormula(sym)) return S.quotes[wlKey(sym, S.instruments)];
+  const parts = wlTokens(sym).map((t) => S.quotes[wlKey(t, S.instruments)]);
+  if (!parts.length || parts.some((q) => q?.last == null)) return null;
+  const val = (k) => wlEval(sym, (t) => S.quotes[wlKey(t, S.instruments)]?.[k] ?? NaN), last = val('last'), prev = val('prev');
+  return Number.isFinite(last) ? { last, prev: Number.isFinite(prev) ? prev : null, ts: Math.max(...parts.map((q) => q.ts ?? 0)),
+    src: parts.some((q) => q.src === 'sim') ? 'sim' : 'formula' } : null;
+}
 function extQuote(qs) {   // the symbol's quote (the server quotes a charted one) moves the last bar between polls
-  if (!['yahoo', 'alpaca', 'ibkr'].includes(S.ext?.source) || !S.bars.length || S.replay) return;
-  const q = qs.find((x) => x.s === wlKey(S.symbol, S.instruments)), last = S.bars.at(-1);
+  if (!['yahoo', 'alpaca', 'ibkr', 'formula'].includes(S.ext?.source) || !S.bars.length || S.replay) return;
+  const f = S.ext.source === 'formula';
+  if (f && !qs.some((x) => wlTokens(S.symbol).some((t) => wlKey(t, S.instruments) === x.s))) return;   // none of its parts'
+  const q = f ? symQuote(S.symbol) : qs.find((x) => x.s === wlKey(S.symbol, S.instruments)), last = S.bars.at(-1);
   // the simulator's quote (a fresh install's watchlist prices) is invented: it never moves real bars
   if (!q || q.last == null || q.src === 'sim' || q.ts < last.t || q.ts >= extBarEnd(last.t)) return;
   const x = exch();
@@ -2987,7 +3067,8 @@ function extQuote(qs) {   // the symbol's quote (the server quotes a charted one
     const sec = Math.floor(extWall.at(q.ts) / 1000) % 86400, [a, b] = x.rth.map((v) => +v.slice(0, 2) * 3600 + +v.slice(3, 5) * 60);
     if (sec < a || sec > b) return;
   }
-  applyBars({ bars: [{ ...last, h: Math.max(last.h, q.last), l: Math.min(last.l, q.last), c: q.last }] });
+  const c = f ? Number(q.last.toFixed(S.ext.decimals ?? 4)) : q.last;
+  applyBars({ bars: [{ ...last, h: Math.max(last.h, c), l: Math.min(last.l, c), c }] });
 }
 
 // ---- compare (TradingView's Compare): up to three other symbols as % lines over the chart. The price scale goes to %,
@@ -4721,7 +4802,44 @@ function toast(msg, ms = 4000) {
 }
 
 // ---- bar replay: the chart leaves the live feed and steps through bars the server builds around a past moment --
-const REPLAY_OFF = { lv: false, amt: false, tpo: false, gap: false, prof: false, aavp: false, pvp: false, right: 'off' };   // drawn from later data
+const REPLAY_OFF = {};   // a study drawn from later data, switched off while replaying (none now)
+// The Tatanka studies replay: their requests carry the replay clock (until) and the server builds them as they stood
+// then (the AMT Toolkit on a runner of the replaying chart's own, Daily levels those of the replay's day), asked again
+// as the replay steps.
+const replayUntil = (q) => { if (S.replay) q.set('until', String(Math.round(S.replay.at))); return q; };
+const REPLAY_RID = Math.random().toString(36).slice(2, 12);   // this chart's replay builds on the server (vp_service)
+const studyView = () => `${S.symbol} ${S.spec} ${S.rth} ${S.replay ? S.replay.jumps : ''}`;   // an answer is this view's
+let replayJumps = 0;   // every replay start and jump, over every replay: an answer asked in one is never another's
+// A replay start, jump or exit: the profiles drawn for the view before (live, or another clock) go until the new ones
+// come (TPO and Gap Analysis are asked anew, emptied, by subscribe()).
+function replayClearStudies() {
+  for (const k of VP_KINDS) { S.vp[k] = null; vpPrims[k].update(); }
+  S.rangeProfile = null;
+  rangePrim.update();
+}
+let replayRange = 0;
+function replayStudies() {
+  for (const k of VP_KINDS) if (S.st[k]) vpRequest(k);   // one at a time each: playing fast, the latest clock next
+  if (S.st.right !== 'off' && !replayRange) replayRange = setTimeout(() => { replayRange = 0; fetchRange(); }, 300);
+  amtReplayAsk();
+  replayLevels();
+}
+// Daily levels in replay: the levels the chart had at the replay clock (the server's as_of: those kept for that day),
+// asked again every 15 minutes of replay and on a jump.
+let replayLvBusy = false;
+function replayLevels() {
+  const r = S.replay;
+  if (!r || !S.st.lv || replayLvBusy || (r.lvSym === S.symbol && Math.abs(r.at - r.lvAt) < 15 * 60e3)) return;
+  replayLvBusy = true;
+  const at = Math.round(r.at), sym = S.symbol, jumps = r.jumps;
+  api('GET', `/api/levels/${encodeURIComponent(sym)}?until=${at}`).catch((e) => (e.status === 404 ? null : undefined)).then((d) => {
+    replayLvBusy = false;
+    if (S.replay !== r || sym !== S.symbol || jumps !== r.jumps) { replayLevels(); return; }   // asked for another clock
+    if (d === undefined) return;   // failed (not "none kept"): asked again at the next step
+    Object.assign(r, { levels: d, lvAt: at, lvSym: sym });
+    drawLevels();
+  });
+}
 // When bar i is complete: the next bar's open (after: where the last bar ends, where known), or a time bar's end
 // if that comes first (the 16:00 close), or a replay's tick, volume or range bar's hours' end that the server sends
 // (e) where the next one opens a session later. days: 2D or 3D bars, which hold a weekend or a holiday as often as
@@ -4767,11 +4885,15 @@ function replayStart(at) {
   if (!S.replay) {
     const hidden = {};
     for (const [k, off] of Object.entries(REPLAY_OFF)) if (S.st[k] !== off) hidden[k] = S.st[k];
-    S.replay = { at, data: [], idx: 0, kind: 'time', period: 0, nextAt: null, endAt: null, playing: false, timer: 0, busy: false, hidden, req: 0, empty: 0 };
+    S.replay = { at, data: [], idx: 0, kind: 'time', period: 0, nextAt: null, endAt: null, playing: false, timer: 0, busy: false, hidden, req: 0, empty: 0, jumps: 0 };
     for (const k of Object.keys(hidden)) { S.st[k] = REPLAY_OFF[k]; studiesChanged(k); }
   }
   replayPause();
   S.replay.at = at;
+  S.replay.jumps = ++replayJumps;   // the studies' answers for the old clock are not this one's
+  S.replay.lvSym = null;   // the levels of the new clock's day
+  drawLevels();
+  replayClearStudies();
   subscribe();   // leaves the live chart and calls replayLoad()
 }
 async function replayLoad() {
@@ -4798,6 +4920,7 @@ function replayStep() {
   const i = r.idx++, end = barEnd(r.data, i, r.kind, r.period, r.days, r.endAt ?? r.nextAt);
   r.at = Number.isFinite(end) ? end : r.nextAt ?? r.endAt ?? r.data[i].t + 1;   // endAt: at the present, the forming bar's open
   applyBars({ bars: [r.data[i]] });
+  replayStudies();
   replayUi();
 }
 // Past the loaded bars: ask for the next stretch and carry on from the last bar shown.
@@ -4862,8 +4985,10 @@ function replayExit() {
     replayPause();
     S.replay = null;
     Object.assign(S.st, r.hidden);
+    replayClearStudies();
     subscribe();
     for (const k of Object.keys(r.hidden)) studiesChanged(k);
+    drawLevels();   // today's again
   }
   replayUi();
 }
@@ -5185,8 +5310,9 @@ $('#quick-in').addEventListener('keydown', (e) => {
   if (e.key !== 'Enter') return;
   e.preventDefault();
   const v = $('#quick-in').value.trim(), sym = v.toUpperCase();
-  // a result picked with the arrows; else a live chart's symbol, a timeframe, the best match, what was typed
-  const r = quickSearch.active(true) || (!S.instruments[sym] && !quickSpec(v) && quickSearch.active());
+  // a result picked with the arrows; else a live chart's symbol, a timeframe, the best match, what was typed (a
+  // formula, "VIXM/VIXY", as typed: never its first part's best match)
+  const r = quickSearch.active(true) || (!S.instruments[sym] && !quickSpec(v) && !quickFormula(v) && quickSearch.active());
   if (quickCompare) {
     const c = r?.symbol || (S.instruments[sym] ? sym : v && chartSym(v));
     quickClose();
@@ -5591,7 +5717,7 @@ function onMessage(m) {
       S.liveKey = viewKey();
       break;
     case 'bars': if (m.id === S.subId) applyBars(m); else cmpBars(m); break;
-    case 'amt': if (m.id === S.subId && S.st.amt) amtMerge(m); break;
+    case 'amt': if (m.id === S.subId) { if (S.st.amt) amtMerge(m); amtAnswered(); } break;
     case 'amt_reset': if (m.id === S.subId) { amtSent = 'reset'; loadAmtServer(); } break;   // the starting settings changed: asked again with them
     case 'amt_settings':   // the starting settings, a symbol's alert settings or its alert switch changed (here, on another chart or device)
       amtHeard += 1;
@@ -5650,6 +5776,7 @@ function onMessage(m) {
     case 'fill': onFill(m); break;
     case 'error':
       if (m.op === 'sub' && m.id === S.subId) { splashSay(`The chart didn't load: ${m.message}`, true); loadNote(m.message); }
+      if (m.op === 'amt' && m.id === S.subId) amtAnswered();
       toast(m.message);
       break;
   }
@@ -6626,6 +6753,7 @@ const drawings = createDrawings({
 const watch = createWatchlist({
   root: $('#tab-watch'), api, fail, toast, ask, local, menu: showMenu, closeMenu: closeCtx,
   instruments: () => S.instruments, quotes: () => S.quotes, current: () => S.symbol, onlyFutures: () => S.onlyFutures,
+  formulaChart: (b) => chartSym(b),   // as the quick switch charts it: one that reads, of up to FORMULA_MAX symbols
   open: (sym) => {   // on a phone, as TradingView's app: its chart, full screen
     if (TK_MULTI) { workspaces.toActive({ type: 'symbol', sym }); return; }
     setSymbol(sym);

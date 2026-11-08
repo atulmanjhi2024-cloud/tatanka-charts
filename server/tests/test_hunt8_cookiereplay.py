@@ -116,7 +116,7 @@ const S = { symbol: 'ES', spec: '500v', rth: false, bars: [], replay: null };
 const CASES = JSON.parse(require('fs').readFileSync(__CASES__, 'utf8')), out = {};
 let answers = null;
 const api = async (m, path) => JSON.parse(JSON.stringify(answers[path]));
-const replayUi = () => {}, replayPause = () => {}, fail = (e) => { throw e; }, toast = () => {};
+const replayUi = () => {}, replayStudies = () => {}, replayPause = () => {}, fail = (e) => { throw e; }, toast = () => {};
 function applyHistory(m) { S.bars = m.bars.slice(); }
 function applyBars(m) { S.bars.push(...m.bars); }
 /*APP*/

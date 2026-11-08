@@ -512,9 +512,16 @@ namespace TatankaPvpCore
         internal DateTime? Poc, Vah, Val;
         internal void Observe(double low, double high, DateTime time, Snapshot levels, bool showPoc, bool showVah, bool showVal)
         {
-            if (showPoc && !Poc.HasValue && low <= levels.Poc && high >= levels.Poc) Poc = time;
-            if (showVah && !Vah.HasValue && low <= levels.Vah && high >= levels.Vah) Vah = time;
-            if (showVal && !Val.HasValue && low <= levels.Val && high >= levels.Val) Val = time;
+            if (showPoc && !Poc.HasValue && Holds(low, high, levels.Poc)) Poc = time;
+            if (showVah && !Vah.HasValue && Holds(low, high, levels.Vah)) Vah = time;
+            if (showVal && !Val.HasValue && Holds(low, high, levels.Val)) Val = time;
+        }
+        // A level is a tick count times the tick size (2600.1000000000004 on GC): a bar whose high is the level's price
+        // (2600.1) touches it (v1.0.1).
+        internal static bool Holds(double low, double high, double level)
+        {
+            double e = 1e-9 * Math.Max(1.0, Math.Abs(level));
+            return low <= level + e && high >= level - e;
         }
     }
 

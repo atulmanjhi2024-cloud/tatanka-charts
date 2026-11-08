@@ -660,6 +660,7 @@ class Market:
             self.dirty[(tk.symbol, b.t)] = b
             self.amt.on_minute(tk.symbol, b)
             self.gaps.on_minute(tk.symbol, b, live)
+        self.amt.on_trade(tk)   # after its minute: an AMT profile drawn from trades checks them against it
         self.last_tick[tk.symbol] = tk
         if tk.symbol in self.tape_subs:
             self.tape_buf.setdefault(tk.symbol, []).append(tk)
@@ -706,7 +707,7 @@ class Market:
         except Exception:   # a failed write (the database locked by an import) never skips the reloads below
             log.exception("%s settlement not worked out again", sym)
         self.vp.forget(sym)
-        self.tpo.daily.pop(sym, None)
+        self.tpo.forget(sym)
         dsma.forget(sym)
         htfema.forget(sym)
         if self.gaps.watches.pop(sym, None) is not None:
@@ -965,14 +966,19 @@ class Market:
                     if hasattr(f, "watch_changed"):
                         f.watch_changed(self)
 
-    def recent_minutes(self, symbol: str) -> tuple[int, list[Bar]]:
+    def recent_minutes(self, symbol: str, until: int | None = None) -> tuple[int, list[Bar]]:
         """For studies built from 1m bars: everything is flushed; stored minutes before the returned split are
         complete, and copies of the in-memory minutes from it on (the same cut as chart history). While the database
-        can't be written, the minutes waiting for it are left out."""
+        can't be written, the minutes waiting for it are left out. until: bar replay's clock, the minutes ending by it
+        only (it is cut to the minute: none of a minute's trades after it)."""
         self.flush_for_read()
         last = self.m1[symbol].last
         split = last.t if last and symbol in self.m1_ticked else now_ms() // 60_000 * 60_000
-        return split, [replace(b) for b in self.m1[symbol].bars if b.t >= split]
+        live = [replace(b) for b in self.m1[symbol].bars if b.t >= split]
+        if until is None:
+            return split, live
+        cut = until // 60_000 * 60_000
+        return (cut, []) if cut <= split else (split, [b for b in live if b.t < cut])
 
     def flush(self):
         """Writes the buffered trades and changed 1m bars. A failed write (the database locked by an import past the
@@ -1220,7 +1226,8 @@ class Market:
     def disconnect(self, c: Client):
         self.set_tape(c, None)
         c.closed = True
-        for sid in list(c.subs) + list(c.amt_entries):   # AMT may be on while its chart was still loading
+        replaying = {sid for (cl, sid) in [*self.amt.replays, *self.amt.replay_locks] if cl is c}
+        for sid in set(c.subs) | set(c.amt_entries) | replaying:   # AMT may be on while its chart was still loading
             self.unsubscribe(c, sid)
         self.clients.discard(c)
 
@@ -1324,7 +1331,8 @@ class Market:
 
     def levels_changed(self):
         """The daily levels changed (daily_levels.py: a file, link or pasted line): each symbol's set made again; one
-        that changed starts its level alerts afresh, and every page hears."""
+        that changed starts its level alerts afresh, and every page hears. Each day's are kept for bar replay."""
+        self.daily.remember()
         for sym in self.levels.poll():
             self.alerts.reset_levels(sym)
             ls = self.levels.get(sym)

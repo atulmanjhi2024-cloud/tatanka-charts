@@ -669,20 +669,28 @@ async def server_restart():
 
 
 @app.get("/api/levels/{symbol}")
-async def levels(symbol: str):
-    """The symbol's daily levels as the Daily levels study draws them (P, R1..., S1...)."""
-    ls = M().levels.get(symbol.upper())
+async def levels(symbol: str, until: int | None = None):
+    """The symbol's daily levels as the Daily levels study draws them (P, R1..., S1...). until: bar replay's clock,
+    the levels shown then (Levels.as_of)."""
+    m = M()
+    replaying, until = until is not None, _until(until)
+    ls = m.levels.get(symbol.upper()) if until is None else m.levels.as_of(symbol.upper(), until)
     if not ls:
+        if replaying:   # none then: an answer, not an error (a replay asks every 15 minutes of its clock)
+            return None
         raise HTTPException(404, f"no levels for {symbol}")
     return ls.to_dict()
 
 
 @app.get("/api/vp/{kind}")
-async def volume_profile(kind: str, symbol: str, key: str = "", have: str = "", s: str = ""):
+async def volume_profile(kind: str, symbol: str, key: str = "", have: str = "", s: str = "", until: int | None = None,
+                         rid: str = "", rth: bool = False):
     """The Session (prof), Auto Anchored (aavp) or Periodic (pvp) volume profile of a symbol, ported from the Tatanka
     NinjaTrader indicators, with their saved settings (/api/indicators). key and have: the build named by an earlier
     answer and the starts (epoch ms, comma-separated) of the finished profiles held from it, sent back without rows.
-    s: the settings to use (JSON, as the chart shows them: a chart tab can have its own) instead of the saved ones."""
+    s: the settings to use (JSON, as the chart shows them: a chart tab can have its own) instead of the saved ones.
+    until: bar replay's clock (epoch ms): the profiles as they stood then; rid: the replaying chart (its own build).
+    rth: an RTH chart's AAVP or PVP, from its regular hours' minutes (touches too), as NinjaTrader's on its template."""
     from .vp_service import KINDS
     m = M()
     sym = symbol.upper()
@@ -701,19 +709,22 @@ async def volume_profile(kind: str, symbol: str, key: str = "", have: str = "", 
             settings = clean(kind, json.loads(s[:20_000]))
         except (ValueError, TypeError) as e:
             raise HTTPException(400, f"s: {e}") from None
-    return await m.vp.get(kind, sym, key[:64], held, settings)
+    return await m.vp.get(kind, sym, key[:64], held, settings, _until(until), rid[:40], rth)
 
 
 @app.get("/api/profile")
 async def profile(symbol: str, start: int | None = None, end: int | None = None, sessions: int | None = None,
-                  rth: bool = False):
+                  rth: bool = False, until: int | None = None):
     """Volume profile for [start, end) in epoch ms (visible range), or for the last N sessions (composite); rth: their
-    regular hours only (an RTH chart's bars)."""
+    regular hours only (an RTH chart's bars). until: bar replay's clock: nothing traded after it counts."""
     m = M()
     sym = symbol.upper()
     if sym not in m.instruments:
         raise HTTPException(404, f"unknown symbol {symbol}")
-    now = now_ms()
+    until = _until(until)
+    if until is not None:
+        until = until // 60_000 * 60_000   # to its minute, as the other studies: none of a minute's trades after it
+    now = now_ms() if until is None else until - 1
     if sessions:
         start = previous_session_start(now + 1)   # the session trading now, or the last one (weekend, break)
         for _ in range(max(1, min(sessions, 60)) - 1):
@@ -722,6 +733,8 @@ async def profile(symbol: str, start: int | None = None, end: int | None = None,
     if start is None:
         raise HTTPException(400, "give start (and end) or sessions")
     end = end or now + 1
+    if until is not None:
+        end = min(end, until)
     if end <= start or end - start > 90 * DAY_MS:
         raise HTTPException(400, "range must be positive and at most 90 days")
     return await m.range_profile(sym, start, end, rth) or {}
@@ -729,6 +742,8 @@ async def profile(symbol: str, start: int | None = None, end: int | None = None,
 
 class AmtAlertsIn(BaseModel):
     on: bool
+    minutes: int | None = Field(None, ge=1, le=30)   # the chart it is switched on from: its bars...
+    set: dict | None = None                          # ...and its own settings: the alerts are on what it draws
 
 
 @app.get("/api/amt")
@@ -834,15 +849,19 @@ async def amt_alerts(symbol: str, body: AmtAlertsIn):
     sym = symbol.upper()
     if sym not in m.instruments:
         raise HTTPException(404, f"unknown symbol {symbol}")
-    m.amt.set_alerts(sym, body.on)
+    try:
+        m.amt.set_alerts(sym, body.on, body.minutes, body.set)
+    except (KeyError, ValueError, TypeError) as e:
+        raise HTTPException(400, str(e).strip("'\""))
     _amt_said(m)
     return m.amt.alert_cfg[sym]
 
 
 @app.get("/api/tpo")
-async def tpo_profile(request: Request, symbol: str, spec: str, rth: bool = False):
+async def tpo_profile(request: Request, symbol: str, spec: str, rth: bool = False, until: int | None = None):
     """Tatanka TPO Profile for a minute or hour chart. Any TPO setting can be added as a query parameter,
-    e.g. &SessionTime=0800-1330&ShowLive=true. rth: an RTH-only chart's (its regular-hours bars and daily bars)."""
+    e.g. &SessionTime=0800-1330&ShowLive=true. rth: an RTH-only chart's (its regular-hours bars and daily bars).
+    until: bar replay's clock (epoch ms): the profile as it stood then."""
     from . import tpo
     m = M()
     sym = symbol.upper()
@@ -851,7 +870,7 @@ async def tpo_profile(request: Request, symbol: str, spec: str, rth: bool = Fals
     minutes = _time_chart(spec)
     overrides = {}
     for k, v in request.query_params.items():
-        if k in ("symbol", "spec", "rth"):
+        if k in ("symbol", "spec", "rth", "until"):
             continue
         d = tpo.DEFAULTS.get(k)
         if isinstance(d, bool):
@@ -867,7 +886,12 @@ async def tpo_profile(request: Request, symbol: str, spec: str, rth: bool = Fals
     except ValueError as e:
         raise HTTPException(400, str(e))
     s["SessionTime"] = sessions.move_session(s["SessionTime"], sessions.rth_mover(m.instruments[sym].rth))   # its own hours
-    return await m.tpo.get(sym, minutes, s, rth)
+    return await m.tpo.get(sym, minutes, s, rth, _until(until))
+
+
+def _until(until: int | None) -> int | None:
+    """Bar replay's clock, a study as it stood then: None (live) from the present on."""
+    return None if until is None or until >= now_ms() else max(until, 0)
 
 
 def _time_chart(spec: str):
@@ -883,9 +907,10 @@ def _time_chart(spec: str):
 
 @app.get("/api/gaps")
 async def gap_analysis(symbol: str, spec: str, RthStart: int = 83000, RthEnd: int = 150000,
-                       MinimumGapPoints: float = 0.0, days: int = 90, rth: bool = False):
+                       MinimumGapPoints: float = 0.0, days: int = 90, rth: bool = False, until: int | None = None):
     """Tatanka Gap Analysis over the last `days` of the chart's bars, forming bar included. rth: an RTH-only
-    chart's bars (the gap opens at its first regular-hours bar)."""
+    chart's bars (the gap opens at its first regular-hours bar). until: bar replay's clock: the gaps as they stood
+    then."""
     from . import gaps
     from .gaps_service import DAYS_MAX
     m = M()
@@ -901,7 +926,7 @@ async def gap_analysis(symbol: str, spec: str, RthStart: int = 83000, RthEnd: in
         check_hours(s, {sym: m.instruments[sym]})   # times its own hours make no session of
     except ValueError as e:
         raise HTTPException(400, str(e))
-    return await m.gaps.get(sym, minutes, own_hours(s, m.instruments[sym].rth), days, rth)
+    return await m.gaps.get(sym, minutes, own_hours(s, m.instruments[sym].rth), days, rth, _until(until))
 
 
 class GapSettingsIn(BaseModel):                     # what is left out stays as it is
@@ -915,6 +940,7 @@ class GapSettingsIn(BaseModel):                     # what is left out stays as 
 class GapAlertsIn(BaseModel):                       # the alert switches are the symbol's (PUT /api/gaps/alerts?symbol=)
     on: bool
     rth: bool = False                               # regular-hours minutes only, as the RTH chart it was switched on from
+    minutes: int | None = Field(None, ge=1, le=1440)   # that chart's timeframe: its bars, as its Gap table (none: 1m)
     RthStart: int = 83000
     RthEnd: int = 150000
     MinimumGapPoints: float = Field(0.0, ge=0)
@@ -967,7 +993,7 @@ async def gap_alerts(symbol: str, body: GapAlertsIn):
     if sym not in m.instruments:
         raise HTTPException(404, f"unknown symbol {symbol}")
     try:
-        m.gaps.set_alerts(sym, body.model_dump())
+        m.gaps.set_alerts(sym, body.model_dump(exclude_none=True))
     except ValueError as e:
         raise HTTPException(400, str(e))
     _gaps_said(m)
@@ -1206,8 +1232,9 @@ def _ifthen_symbol(symbol: str) -> str:
 
 
 @app.get("/api/ifthen/{symbol}")
-async def ifthen_get(symbol: str, atr: int = 14):
-    """The symbol's pasted If/Then block and the previous day's ATR(atr) for the Position colors and zones."""
+async def ifthen_get(symbol: str, atr: int = 14, rth: bool = False):
+    """The symbol's pasted If/Then block and the previous day's ATR(atr) for the Position colors and zones. rth: an
+    RTH chart's, from its regular-hours days (NinjaTrader's daily series on the chart's template), as the Daily SMA."""
     from . import ifthen
     m = M()
     sym = _ifthen_symbol(symbol)
@@ -1217,7 +1244,7 @@ async def ifthen_get(symbol: str, atr: int = 14):
     cur = session_start(now)
     last = m.m1[sym].last
     today = bool(last and last.t >= sessions.trade_key(cur, m.instruments[sym].calendar))   # today's trade date
-    daily = await asyncio.to_thread(m.tpo.daily_for, sym, cur)
+    daily = await asyncio.to_thread(m.tpo.daily_for, sym, cur, bool(rth and m.instruments[sym].rth))
     block = m.store.get_setting("ifthen", {}).get(sym) or {}
     return {"version": ifthen.VERSION, "rows": block.get("rows", ""), "updated": block.get("updated"),
             "atr": ifthen.previous_atr(daily.hlc, atr, today)}
@@ -1236,12 +1263,18 @@ async def ifthen_put(symbol: str, body: IfThenIn):
 
 
 def _drawing_symbol(symbol: str) -> str:
-    """A live chart's symbol, or any one the app charts from free data (AAPL, FRED:DGS10)."""
+    """A live chart's symbol, or any one the app charts from free data (AAPL, FRED:DGS10), or a formula's ("VIXM/VIXY":
+    its / comes as ~ in the URL, which no symbol has, as a %2F would split the path)."""
     from .ext import chart_symbol
+    from .formula import canonical, is_formula
+    from .watchlists import _clean_item
+    symbol = symbol.replace("~", "/")
     sym = symbol.upper()
     if sym in M().instruments:
         return sym
     try:
+        if is_formula(symbol):
+            return canonical(_clean_item(symbol, M().symbols.only_futures), M().instruments)
         return chart_symbol(symbol, M().instruments, M().symbols.only_futures)
     except ValueError:
         raise HTTPException(404, f"unknown symbol {symbol}") from None
@@ -1521,10 +1554,15 @@ async def cot(symbol: str):
 @app.get("/api/ext/bars")
 async def ext_bars(symbol: str, spec: str = "1D", rth: bool = True):
     """Bars for a symbol with no live chart here: Alpaca (US stocks intraday, real time, with its keys), Yahoo
-    (delayed), FRED or EIA. rth=false: with a stock's pre- and post-market."""
+    (delayed), FRED or EIA; or for a formula of symbols ("VIXM/VIXY", formula.py). rth=false: with a stock's pre- and
+    post-market."""
     from .ext import chart_symbol
+    from .formula import canonical, formula_bars, is_formula
+    from .watchlists import _clean_item
     m = M()
     try:
+        if is_formula(symbol):   # "VIXM/VIXY": worked out from its parts' bars
+            return await formula_bars(m, canonical(_clean_item(symbol, m.symbols.only_futures), m.instruments), spec, rth)
         return await m.ext.bars(chart_symbol(symbol, m.instruments, m.symbols.only_futures), spec, rth)
     except ValueError as e:
         raise HTTPException(400, str(e)) from None
@@ -1964,7 +2002,9 @@ async def ws(sock: WebSocket):
             elif op == "unsub":
                 m.unsubscribe(client, int(msg["id"]))
             elif op == "amt":
-                await m.amt.subscribe(client, int(msg["id"]), str(msg["symbol"]).upper(), int(msg["minutes"]), msg.get("set"))
+                until = msg.get("until")
+                await m.amt.subscribe(client, int(msg["id"]), str(msg["symbol"]).upper(), int(msg["minutes"]), msg.get("set"),
+                                      None if until is None else int(until))
             elif op == "tape":
                 m.set_tape(client, str(msg["symbol"]).upper() if msg.get("symbol") else None, int(msg.get("min", 1)))
             elif op == "amt_off":

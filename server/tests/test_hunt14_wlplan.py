@@ -181,11 +181,11 @@ w.list.setDoc({ lists: [{ id: 'm', name: 'M', items: ['ES1!-NQ1!'] }], flags: {}
 const row = w.root.querySelector('.wl-body').children[0];
 out([row.querySelector('.chg').textContent, row.querySelector('.pct').textContent]);""")
     assert out == ["+150.00", "+0.82%"]
-    out = run_app(["header", "dataWindow", "shortNum"], """
+    out = run_app(["symQuote", "header", "dataWindow", "shortNum"], """
 const els = {};
 const mk = () => { const e = { textContent: '', className: '', hidden: false, sel: {}, children: [], append(...k) { this.children.push(...k); },
   replaceChildren(...k) { this.children = k; } }; e.querySelector = (s) => (e.sel[s] ||= mk()); return e; };
-const document = { createElement: () => mk() }, $ = (s) => (els[s] ||= mk()), px = (v) => v.toFixed(2), wlKey = (t) => t;
+const document = { createElement: () => mk() }, $ = (s) => (els[s] ||= mk()), px = (v) => v.toFixed(2), wlKey = (t) => t, wlIsFormula = () => false;
 const bars = [{ t: 1, o: -0.52, h: -0.52, l: -0.52, c: -0.52 }, { t: 2, o: -0.50, h: -0.50, l: -0.50, c: -0.50 }];
 const S = { symbol: 'FRED:NFCI', instruments: {}, lastBar: bars[1], replay: false, ext: { source: 'fred' }, cs: { dataWin: true }, bars, hoverIdx: 1,
   quotes: { 'FRED:NFCI': { s: 'FRED:NFCI', last: -0.50, prev: -0.52, src: 'fred' } } };

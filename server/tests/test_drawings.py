@@ -161,7 +161,7 @@ def test_drawings_api_and_linked_alert(client):
     assert client.delete("/api/drawings/ES", params={"group": "paste"}).json() == {"deleted": 2}
     assert [d["id"] for d in client.get("/api/drawings/ES").json()["drawings"]] == ["h2"]
     assert client.put("/api/drawings/ES/x", json={"type": "nope"}).status_code == 400
-    assert client.get("/api/drawings/AAPL+MSFT").status_code == 404   # a formula: no chart, no drawings
+    assert client.get("/api/drawings/AAPL+MSFT").status_code == 200   # a formula chart keeps its own drawings
     assert client.get("/api/drawings/FRED:DGS10").status_code == 200   # charts from free data keep drawings too
 
 
