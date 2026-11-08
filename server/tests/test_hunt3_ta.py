@@ -71,7 +71,7 @@ def test_the_chart_gives_its_indicators_the_holiday_halts_of_its_group():
     # chart (a stock) has no CME calendar: every session a day of its own
     sessions.set_calendar(load_holidays(ROOT / "config"))
     hello = {d.isoformat(): {k: v for k, v in h.items() if k != "name"} for d, h in sessions.holidays().items()}
-    src = APPLY_JS.replace("/*APP*/", app_part("applyHistory"))
+    src = APPLY_JS.replace("/*APP*/", "\n".join(app_part(p) for p in ("BAR_CAP", "olderReset", "applyHistory")))
     r = subprocess.run(["node", "-e", src, str(ROOT / "web" / "ta.js"), json.dumps(_mlk_bars()), json.dumps(hello)],
                        capture_output=True, text=True, timeout=60)
     assert r.returncode == 0, r.stderr

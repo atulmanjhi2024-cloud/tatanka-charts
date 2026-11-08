@@ -137,6 +137,7 @@ def test_an_add_on_with_the_wrong_token_is_told_and_the_card_says_so(tmp_path, m
     with 'Waiting for the add-on' and NinjaScript Output with 'connected to'. Now it is answered BYE|wrong token (the
     add-on prints it and tries again in 30 s), and the card says an add-on was turned away for its Token."""
     from chartsrv.connections import DEFS
+    from chartsrv.feeds.ninjatrader import ADDON_VERSION
     nt = next(d for d in DEFS if d["id"] == "ninjatrader")
     assert "ChartFeedToken" not in json.dumps(nt) and "Token" in nt["fields"][1]["note"]
     monkeypatch.setenv("CHART_NT_TOKEN", "s3cretTok")
@@ -151,7 +152,7 @@ def test_an_add_on_with_the_wrong_token_is_told_and_the_card_says_so(tmp_path, m
         card = _card(c, "ninjatrader")
         assert card["state"] == "error" and "Token" in card["status"] and "turned away" in card["status"]
         with socket.create_connection(("127.0.0.1", port), timeout=5) as s:
-            s.sendall(b"HELLO|s3cretTok|19\n")
+            s.sendall(f"HELLO|s3cretTok|{ADDON_VERSION}\n".encode())   # the add-on as it is now
             assert _wait(lambda: _card(c, "ninjatrader")["status"].startswith("Add-on connected ·"))
         assert _wait(lambda: _card(c, "ninjatrader")["status"].startswith("Waiting for the add-on"))   # the refusal is over
 

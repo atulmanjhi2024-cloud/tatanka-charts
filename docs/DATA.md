@@ -35,6 +35,10 @@ TradingView: MLK Day's trading is in Tuesday's 1D bar (and the RTH 1D bar), the 
 
 ## Backfill
 
+With the NinjaTrader add-on (20+), 1-minute history fills itself: the last year in the background and older as a
+chart is scrolled back ([NINJATRADER.md](NINJATRADER.md), Older history). A backfill is for what your data provider
+doesn't have.
+
 Imports 1-minute history from a file, one symbol at a time. A minute already stored is never overwritten, so the
 first file imported for a minute wins; live bars from the feed always replace imported ones. The server can keep
 running: it restarts by itself a minute after the import ends, so open charts and studies load the history.

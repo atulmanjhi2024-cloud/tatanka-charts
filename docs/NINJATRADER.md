@@ -28,8 +28,9 @@ Setting it up:
    `TatankaChartFeed: connected to 127.0.0.1:8801`.
 5. Check http://127.0.0.1:8800/api/health: `feed_status.ninjatrader.connected` is true and `ticks` climbs while the
    market trades; the chart's last price matches NinjaTrader's.
-6. History: the add-on fills the last 90 days by itself (below); older history comes from a backfill or a Databento
-   import ([DATA.md](DATA.md)).
+6. History: the add-on fills the last 90 days by itself (below), the year before that in the background, and anything
+   older as a chart is scrolled back (add-on 20, Older history below), as far as your data provider's history goes.
+   A backfill or a Databento import ([DATA.md](DATA.md)) is for what it doesn't have.
 
 Over a weekend (Friday 17:00 to Sunday 16:00 CT) and on a closed CME holiday (Christmas, New Year's Day, Good Friday
 in `config/holidays.json`: from 17:00 the evening before) no future trades, so a trade line stamped then is left out:
@@ -90,6 +91,22 @@ data connection lost and back), and filled the same way, one at a time, each onc
 one, it stays as it is. Never from before the market's last contract roll (the history would be the other
 contract's); and each is asked from 3 minutes before it, so if NinjaTrader's prices there don't match the stored ones
 (a roll before this version kept roll times), the answer is dropped.
+
+**Older history** (add-on 20): the 1-minute bars from before anything stored, also from NinjaTrader, nothing to run.
+Once a future's gap and holes are filled, the server asks for the month before its first stored minute, then the
+month before that, until it has a year (`CHART_HISTORY_PREFILL_DAYS` in `.env`, 365; 0 turns it off), one request at a
+time for all futures, after any other history. A chart scrolled back past the stored minutes asks at once, as many
+months as it needs (up to 6 a time), ahead of that ("loading older bars from NinjaTrader…"), so it keeps going as far
+back as the data provider's history does. Each part comes from its own contract by NinjaTrader's roll dates (Tools >
+Instruments > the symbol > Contract months), however old, none from before the first roll date NinjaTrader lists. A
+month that comes back empty is where the provider's history ends: the chart says so, and it isn't asked again for a
+week. Not answered in 6 minutes, or answered with an error (no data connection): asked again 10 minutes later; three
+times in a row, and that is taken as where the history ends too.
+Charts don't reload for it (they load the older bars as they are scrolled back); a future's studies (AMT Toolkit,
+Daily SMA x4, TPO's days...) load again once its older months are in, if any are from the last 400 days. About 50-70
+MB per future per year. NinjaScript Output shows `filling ES 06-26 ... from NinjaTrader's 1-minute bars`;
+`/api/health` shows it under `gap_fill` (`"older": true`). An add-on before 20 isn't asked: the stored history is
+all there is.
 
 Which futures: the server's list (**Connections > App > Instruments**, [CONNECTIONS.md](CONNECTIONS.md#instruments)). On connect the server tells the add-on
 which roots it charts and the add-on forwards each one's trades; its own `Contracts` list (ES, NQ, CL, GC, MES, MNQ)

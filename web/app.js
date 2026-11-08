@@ -1481,8 +1481,8 @@ function renderAmtDash() {
   const el = $('#amt-dash'), warn = $('#amt-warn'), d = S.amt;
   const ready = S.st.amt && !S.ext && d && d.ready;
   warn.hidden = !S.st.amt || !!S.ext;
-  warn.textContent = !S.st.amt ? '' : !d ? 'Tatanka AMT v1.1.0 — loading chart and secondary history…'
-    : !d.ready ? 'Tatanka AMT v1.1.0 — waiting for bars' : [amtTzWarning(), d.warning].filter(Boolean).join(' ');
+  warn.textContent = !S.st.amt ? '' : !d ? 'Tatanka AMT v1.2.2 — loading chart and secondary history…'
+    : !d.ready ? 'Tatanka AMT v1.2.2 — waiting for bars' : [amtTzWarning(), d.warning].filter(Boolean).join(' ');
   el.hidden = !(ready && S.st.amtDash && d.style?.tbl_show !== false);
   if (!el.hidden) {
     // Folding to SESSION and DAY TYPE is this app's (phones start folded); NinjaTrader always shows every row.
@@ -2385,11 +2385,18 @@ function toPoints(b) {
           { time, value: b.v, color: (b.c >= b.o ? C.up : C.down) + '66' }];
 }
 
-// Bars kept: past this the oldest go, from the chart too, so a bar's index stays the chart's.
-const BAR_CAP = 20000;
+// Bars kept: past this the oldest go, from the chart too, so a bar's index stays the chart's. Older history scrolled
+// back to raises it (S.barCap) up to OLDER_MAX, so the live bars don't take back what was asked for.
+const BAR_CAP = 20000, OLDER_MAX = 60000;
 function trimBars() {
-  const cut = S.bars.length - BAR_CAP, r = chart.timeScale().getVisibleLogicalRange();
+  const cut = S.bars.length - S.barCap;
   S.bars.splice(0, cut);
+  if (S.older) S.older.more = true;   // dropped from the left: there again to scroll back to
+  barsRedraw(-cut);
+}
+// Every bar again, the view `shift` bars along (bars added or dropped at the left).
+function barsRedraw(shift) {
+  const r = chart.timeScale().getVisibleLogicalRange();
   S.seqTime.clear();
   const c = [], v = [];
   for (const b of S.bars) { const [cb, vb] = toPoints(b); c.push(cb); v.push(vb); }
@@ -2401,7 +2408,105 @@ function trimBars() {
   hemaDraw();
   dsmaDraw();
   for (const c of cmpLines) c.series.setData(cmpAlign(c));
-  if (r) chart.timeScale().setVisibleLogicalRange({ from: r.from - cut, to: r.to - cut });
+  if (r) chart.timeScale().setVisibleLogicalRange({ from: r.from + shift, to: r.to + shift });
+}
+
+// ---- older history: scrolled or zoomed out to the first bar, the bars before it load (as TradingView's) ------------
+// The server builds them as the chart's own (minute and longer bars from stored 1-minute bars; seconds and tick bars
+// from stored trades; volume, range and Renko bars from trades, or 1-minute bars where none are stored). They are
+// numbered on from the first bar down, so footprints, indicators and bar lookups keep their numbers. Past the stored
+// minutes the server asks NinjaTrader for older ones (fetching): asked again when they are in ('older' message), or
+// every few seconds meanwhile.
+const OLDER_EDGE = 60;   // bars from the left edge of the view at which the next ones are asked for
+const OLDER_NOTE = 'loading older bars…', OLDER_NT = 'loading older bars from NinjaTrader…', OLDER_POLL_MS = 3000;
+function olderReset() {   // new bars: none older asked for yet (one on its way, or a go-to-date's loading, is dropped)
+  if (S.older) clearTimeout(S.older.poll);
+  S.older = { more: true, busy: false, waitUntil: 0, next: null, fetching: false, poll: 0, toldApprox: false, toldEnd: false,
+    toldMax: false, until: null };
+  S.barCap = BAR_CAP;
+}
+let olderTimer = 0;
+chart.timeScale().subscribeVisibleLogicalRangeChange(() => { clearTimeout(olderTimer); olderTimer = setTimeout(olderCheck, 120); });
+const olderOn = () => !S.ext && !S.replay && !S.liveWait && S.bars.length && S.older?.more && S.instruments[S.symbol];
+function olderCheck() {
+  if (!olderOn() || S.older.busy || Date.now() < S.older.waitUntil) return;
+  const r = chart.timeScale().getVisibleLogicalRange();
+  if (!r || r.from > OLDER_EDGE) return;
+  if (S.bars.length >= OLDER_MAX) { if (!S.older.toldMax) { S.older.toldMax = true; toast(`${OLDER_MAX.toLocaleString()} bars loaded: the most a chart holds. A longer timeframe goes further back.`); } return; }
+  olderLoad(Math.ceil(r.to - r.from));
+}
+async function olderLoad(visible) {
+  const o = S.older, all = S.bars, first = all[0], sym = S.symbol, spec = S.spec;
+  // D/W/M bars read many minutes each: fewer a time
+  const count = Math.min(5000, OLDER_MAX - all.length, Math.max(calSpec() ? 200 : 500, visible * 3));
+  o.busy = true;
+  clearTimeout(o.poll);
+  loadNote(o.fetching ? OLDER_NT : OLDER_NOTE);
+  try {
+    const before = o.next ?? first.t;   // after an answer with none (a long stretch with nothing stored): on from where it got
+    const q = new URLSearchParams({ symbol: sym, spec, before, count, rth: S.rth });
+    const d = await api('GET', `/api/older?${q}`, undefined, { timeout: 60_000 });
+    if (o !== S.older || all !== S.bars || all[0] !== first) return;   // another load (or a trim) meanwhile: asked again
+    o.fetching = !!d.fetching;   // NinjaTrader is asked for older ones: asked again when they're in
+    o.more = d.more && (d.fetching || d.bars.length > 0 || (d.next != null && d.next < before));   // never the same ask again
+    o.next = d.bars.length ? null : d.next;
+    const bars = d.bars.filter((b) => b.t < first.t);
+    if (bars.length) olderPrepend(bars);
+    if (d.approx && !o.toldApprox) { o.toldApprox = true; toast(`Some older ${spec} bars are built from 1-minute bars: no trades are stored for those days`); }
+    if (!d.more && !o.toldEnd) {
+      o.toldEnd = true;
+      toast(d.why === 'limit' ? `${sym} ${specLabel(spec)}: that's as far back as NinjaTrader's history goes`
+        : d.why === 'wait' ? `${sym}: NinjaTrader didn't send older history; it's asked again in a few minutes`
+          : `${sym} ${specLabel(spec)}: all the stored history is loaded`);
+    }
+  } catch (e) {
+    if (o === S.older) o.waitUntil = Date.now() + 15_000;   // not again at once (the server stopped, a slow PC)
+    console.warn('older bars', e);
+  } finally {
+    o.busy = false;
+    if ((S.loadNote === OLDER_NOTE || S.loadNote === OLDER_NT) && !(o === S.older && o.fetching)) loadNote('');
+    else if (o === S.older && o.fetching) loadNote(OLDER_NT);
+  }
+  if (o !== S.older) return;
+  if (o.fetching) o.poll = setTimeout(olderAgain, OLDER_POLL_MS);   // NinjaTrader's on its way: asked again in a while
+  else olderAgain();   // still at the edge: on back
+}
+function olderAgain() {
+  const o = S.older;
+  if (!o || o.busy) return;
+  clearTimeout(o.poll);
+  if (o.until) olderUntilStep(); else olderCheck();
+  if (o.fetching && !o.busy && S.loadNote === OLDER_NT) loadNote('');   // scrolled away meanwhile: not asked now
+}
+function olderPrepend(bars) {
+  let seq = S.bars[0].seq - bars.length;
+  for (const b of bars) b.seq = seq++;
+  S.bars.splice(0, 0, ...bars);
+  S.barCap = Math.min(OLDER_MAX, Math.max(S.barCap, S.bars.length));
+  barsRedraw(bars.length);
+  hemaRequest();   // these read from the first bar on
+  dsmaRequest();
+  fillsSchedule(300);
+  drawings.update();
+  if (anchorMs() != null) drawAvwap();
+  legend(S.lastBar);
+}
+// Go to a moment older than the bars loaded: loads back until reached() (the first bar is at or before it), then
+// done(); fail() if the stored history doesn't reach that far (or the chart changes meanwhile).
+function olderUntil(reached, done, fail) {
+  if (reached()) { done(); return; }
+  if (!olderOn() || S.bars.length >= OLDER_MAX) { fail(); return; }
+  Object.assign(S.older, { until: reached, done, fail });   // in place of one asked for before
+  if (!S.older.busy) olderUntilStep();
+}
+function olderUntilStep() {
+  const o = S.older, { until: reached, done, fail } = o;
+  if (reached() || !o.more || S.bars.length >= OLDER_MAX || Date.now() < o.waitUntil) {
+    o.until = o.done = o.fail = null;
+    if (reached()) done(); else fail();
+    return;
+  }
+  olderLoad(1000);
 }
 
 function applyHistory(m) {
@@ -2419,6 +2524,7 @@ function applyHistory(m) {
   candles.setData(c);
   vol.setData(v);
   S.bars = m.bars.slice();
+  olderReset();
   S.liveWait = false;   // these are the bars fpFetch asks for
   altSetData();
   S.fp.clear();
@@ -2466,6 +2572,7 @@ function barsClear() {
   vol.setData([]);
   candles.setData([]);
   S.bars = [];
+  olderReset();
   S.lastBar = null;
   S.loadedKey = S.loadedSym = '';
   altSetData();
@@ -2504,7 +2611,7 @@ function applyBars(m) {
     S.lastBar = b;
   }
   if (S.cs.plAuto && S.cs.plOpacity < 100) priceLineLayout();   // the bar turned: the line's color with it
-  if (S.bars.length > BAR_CAP + 1000) trimBars();
+  if (S.bars.length > S.barCap + 1000) trimBars();
   if (anchorMs() != null) drawAvwap();
   indsUpdate();
   if (closed && S.st.tpo) tpoRequest();
@@ -5217,8 +5324,8 @@ function resetView() {
   setAuto(true);
 }
 // Go to date (TradingView's Alt+G): a moment on the chosen zone's clock, centred at the zoom you have, the crosshair on
-// its bar; on D/W/M charts a trade date, as their axis shows them. Only within the bars loaded: a longer timeframe
-// reaches further back.
+// its bar; on D/W/M charts a trade date, as their axis shows them. Before the bars loaded: the older ones load back to
+// it, as far as the stored history goes (a longer timeframe can reach further).
 const tradeDate = (ms) => msToCtInput(ms + 7 * 3600e3).slice(0, 10);   // a D/W/M bar's: its 17:00 CT open the day before
 async function goToDate() {
   if (!S.bars.length) return;
@@ -5228,17 +5335,37 @@ async function goToDate() {
   if (calSpec() && isTime()) {
     const v = await ask({ title: 'Go to date (trade date)', value: tradeDate(mid.t), ok: 'Go', type: 'date' });
     if (!/^\d{4}-\d\d-\d\d$/.test(v || '')) return;
-    if (v < tradeDate(S.bars[0].t)) { toast(`The bars loaded start ${fmtDate.format(S.bars[0].t + 7 * 3600e3)}: a longer timeframe goes further back`); return; }
+    if (v < tradeDate(S.bars[0].t)) {
+      olderGo(() => tradeDate(S.bars[0].t) <= v, goToDate.land.bind(null, w, () => { let j; for (j = S.bars.length - 1; j > 0 && tradeDate(S.bars[j].t) > v;) j -= 1; return j; }),
+        () => `The stored history starts ${fmtDate.format(S.bars[0].t + 7 * 3600e3)}: a longer timeframe goes further back`);
+      return;
+    }
     for (i = S.bars.length - 1; i > 0 && tradeDate(S.bars[i].t) > v;) i -= 1;   // the bar holding that date
   } else {
     const v = await ask({ title: `Go to date (${ax.short})`, value: ax.input.toInput(mid.t), ok: 'Go', type: 'datetime-local' });
     const ms = v == null ? null : ax.input.toMs(v);
     if (ms == null) return;
-    if (ms < S.bars[0].t) { toast(`The bars loaded start ${ax.md.format(S.bars[0].t)} ${zs(S.bars[0].t)}: a longer timeframe goes further back`); return; }
-    i = Math.min(S.bars.length - 1, Math.max(0, barIndexTo(S.bars, ms)));
+    const at = () => Math.min(S.bars.length - 1, Math.max(0, barIndexTo(S.bars, ms)));
+    if (ms < S.bars[0].t) {
+      olderGo(() => S.bars[0].t <= ms, goToDate.land.bind(null, w, at),
+        () => `The stored history starts ${ax.md.format(S.bars[0].t)} ${zs(S.bars[0].t)}: a longer timeframe goes further back`);
+      return;
+    }
+    i = at();
   }
-  ts.setVisibleLogicalRange({ from: i - w / 2, to: i + w / 2 });
+  goToDate.land(w, () => i);
+}
+goToDate.land = (w, at) => {
+  const i = at();
+  chart.timeScale().setVisibleLogicalRange({ from: i - w / 2, to: i + w / 2 });
   chart.setCrosshairPosition(S.bars[i].c, timeOf(S.bars[i]), candles);
+};
+// Loads back to a moment before the bars loaded (olderUntil), saying so while it does; then done(), or the toast
+// failed() words.
+function olderGo(reached, done, failed) {
+  const key = viewKey();
+  toast('Loading older bars…');
+  olderUntil(reached, () => { if (key === viewKey()) done(); }, () => { if (key === viewKey() && S.bars.length) toast(failed()); });
 }
 const NAV = { out: () => zoom(1.25), in: () => zoom(0.8), left: () => scrollBars(-0.2), right: () => scrollBars(0.2), reset: resetView, date: goToDate };
 document.querySelectorAll('#nav [data-nav]').forEach((b) => { b.onclick = () => NAV[b.dataset.nav](); });
@@ -5733,6 +5860,7 @@ function onMessage(m) {
       renderGapMenu();
       indDlg.refresh();
       break;
+    case 'older': if (m.symbol === S.symbol && S.older?.fetching) olderAgain(); break;   // NinjaTrader's older bars are in
     case 'reload': if (m.id === S.subId && !S.replay) { toast(`${S.symbol}: history filled in from NinjaTrader`); subscribe(); } else cmpReload(m.id); break;
     case 'quotes': m.quotes.forEach((q) => { S.quotes[q.s] = q; }); watch.onQuotes(m.quotes); extQuote(m.quotes); header(); break;
     case 'watchlists': watch.setDoc(m.watchlists); break;
@@ -7390,7 +7518,10 @@ function journalShow(t) {
 }
 function goToTime(ms) {
   const i = barIndexTo(S.bars, ms);
-  if (i < 0) { toast('That trade is older than the bars loaded: pick a longer timeframe'); return; }
+  if (i < 0) {
+    olderGo(() => S.bars[0].t <= ms, () => goToTime(ms), () => 'That trade is older than the stored history of this timeframe: pick a longer one');
+    return;
+  }
   chart.timeScale().setVisibleLogicalRange({ from: i - 40, to: i + 60 });
 }
 ['#jr-range', '#jr-sym'].forEach((q) => { $(q).onchange = journalLoad; });

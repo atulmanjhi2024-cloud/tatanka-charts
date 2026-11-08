@@ -221,7 +221,7 @@ def test_free_data_day_bars_take_their_trade_dates_for_pivots():
     week = [b for b in bars if "2026-09-28" <= b["day"] <= "2026-10-02"]
     sept = [b for b in bars if b["day"] < "2026-10-01"]
     js = PIVOTS_JS.replace("/*TA*/", (WEB / "ta.js").read_text()).replace("BARS", json.dumps(bars))
-    got = run_app(["TZ_EXCHANGE", "calSpec", "exch", "applyHistory"], js)
+    got = run_app(["TZ_EXCHANGE", "calSpec", "exch", "BAR_CAP", "olderReset", "applyHistory"], js)
     assert got["5m"] == "America/New_York 00:00" and got["1D"] == "America/Chicago 17:00"   # intraday: the exchange's clock
     assert got["Weekly"]["mon"] == "2026-10-05" and got["Weekly"]["oct5"] == pp(week)   # Monday: the week before's levels
     assert got["Monthly"]["oct1"] == got["Monthly"]["oct2"] == pp(sept)   # October's from September, from its 1st

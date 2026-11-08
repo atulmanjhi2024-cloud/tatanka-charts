@@ -188,7 +188,7 @@ def test_back_from_replay_the_footprint_waits_for_the_live_history():
     + 1 h, seconds of server work thrown away, the live chart's own footprint waiting behind it. Another symbol or bar
     type meanwhile: the old chart's bars. fpFetch now waits for the history."""
     out = run_app(["specSeconds", "daysSpec", "barEnd", "replayPause", "replayExit", "fpBusy", "fpSchedule", "fpFetch",
-                   "subscribe", "applyHistory"], EXIT_JS)
+                   "subscribe", "BAR_CAP", "olderReset", "applyHistory"], EXIT_JS)
     assert out["subs"] == ["ES", "NQ"]
     assert [a["at"] for a in out["asked"]] == ["history", "refresh"], out["asked"]   # nothing before the history comes
     for a in out["asked"]:

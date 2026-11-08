@@ -17,6 +17,7 @@ import sqlite3
 import time
 
 from .. import journal, sessions
+from ..gapfill import OLDER_ADDON
 from .. import watchlists as wl
 from ..models import Tick
 
@@ -24,7 +25,7 @@ log = logging.getLogger(__name__)
 LIVE_WINDOW_MS = 10_000
 IDLE_TIMEOUT_S = 30        # the add-on sends a heartbeat every 5 s
 QUIET_S = 10               # a connection quiet this long is replaced by a new one; one talking keeps the feed
-ADDON_VERSION = 19         # ninjatrader/TatankaChartFeed.cs's Version: an older one is told to update
+ADDON_VERSION = 20         # ninjatrader/TatankaChartFeed.cs's Version: an older one is told to update
 CONTRACT_RE = re.compile(r"^[A-Z0-9]{1,8} (\d\d-\d\d|[A-Z]{3}\d\d)$")   # NinjaTrader's names: "ES DEC26" or "ES 12-26"
 
 
@@ -101,11 +102,14 @@ class NinjaTraderFeed:
             log.info("NinjaTrader add-on connected from %s", peer)
             gf = getattr(market, "gapfill", None)
             gaps = gf.requests(int(time.time() * 1000), live=self._live(),   # where stored data stops
-                               minutes=self.stats.get("version", 0) >= 7, contracts=self.stats.get("version", 0) >= 8) if gf else []
+                               minutes=self.stats.get("version", 0) >= 7, contracts=self.stats.get("version", 0) >= 8,
+                               older=self.older_ok(writer)) if gf else []
             self._send_charts(market, writer)   # first: the add-on needs each future's feed and contract to answer
             if gaps:
                 writer.write(("".join(g + "\n" for g in gaps)).encode())
                 log.info("asked NinjaTrader for history: %s", ", ".join(g.split("|", 2)[1] for g in gaps))
+            if gf is not None and hasattr(gf, "next_older") and (older := gf.next_older()):   # a symbol with no gap to fill
+                writer.write((older + "\n").encode())
             self._send_watch(market, writer)
             await writer.drain()
             while line := await asyncio.wait_for(reader.readline(), IDLE_TIMEOUT_S):
@@ -127,6 +131,8 @@ class NinjaTraderFeed:
                 for sym in [s for s in getattr(gf, "windows", {}) if s not in owned]:   # its answers won't come now (asked
                     del gf.windows[sym]   # again at the next connect): its alerts wait for none (gapfill.filling)
                     gf.status[sym] = {**gf.status.get(sym, {}), "state": "dropped", "note": "the add-on disconnected"}
+                if gf is not None and hasattr(gf, "older_ok"):   # its older history isn't coming either
+                    gf.older_ok, gf.older_busy = False, None
                 for sym in list(getattr(gf, "changed", ())):   # holes left unasked: what was filled reloads now
                     gf.settle(sym)
                 if gf is not None and hasattr(gf, "fail_values"):
@@ -162,6 +168,17 @@ class NinjaTraderFeed:
 
     def history_ok(self) -> bool:
         return self.writer is not None and self.stats.get("version", 0) >= 7
+
+    def older_ok(self, writer=None) -> bool:
+        """An add-on connected that answers older history (GAP|...|older: 20+)."""
+        return (writer or self.writer) is not None and self.stats.get("version", 0) >= OLDER_ADDON
+
+    def send(self, line: str) -> bool:
+        """A line to the add-on now; False when none is connected."""
+        if self.writer is None:
+            return False
+        self.writer.write((line + "\n").encode())
+        return True
 
     def _live(self) -> bool:
         """The add-on waits for NinjaTrader's data connection, asks up to its first live trade (GAP|...|live), and
@@ -265,6 +282,8 @@ class NinjaTraderFeed:
                 market.gapfill.done(p[1], p[2], int(p[3]), "|".join(p[4:])[:200])
                 if self.writer is not None and (nxt := market.gapfill.next(p[1])):   # its next hole
                     self.writer.write((nxt + "\n").encode())
+                if self.writer is not None and hasattr(market.gapfill, "next_older") and (nxt := market.gapfill.next_older()):
+                    self.writer.write((nxt + "\n").encode())   # older history, once nothing newer is asked for
             elif p[0] == "H":
                 pass
             else:

@@ -102,6 +102,11 @@ def build_series(db_path, series, symbol, spec, cutoff_rowid, split_t, now):
     return series
 
 
+def build_older(*args):
+    from .older import build_older
+    return build_older(*args)
+
+
 def load_amt(db_path, runner, symbol, split):
     from .amt_hub import _load_history
     _load_history(db_path, runner, symbol, split)

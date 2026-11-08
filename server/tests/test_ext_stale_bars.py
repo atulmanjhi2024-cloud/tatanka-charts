@@ -249,7 +249,7 @@ process.exit(0);
 
 @needs_node
 def test_switching_nq_to_qqq_never_shows_nqs_bars_or_price():
-    out = run_app(["api", "viewKey", "symQuote", "header", "legend", "applyHistory", "barsClear", "loadNote", "extTimer", "EXT_WAIT_MS", "extEvery",
+    out = run_app(["api", "viewKey", "symQuote", "header", "legend", "BAR_CAP", "olderReset", "applyHistory", "barsClear", "loadNote", "extTimer", "EXT_WAIT_MS", "extEvery",
                    "extLoad", "extMerge", "subscribe", "setSymbol", "setSpec", "setRth", "openTab"], PAGE_JS)
     assert out["nq"] == {"bars": 6, "candles": 6, "last": "26907.00", "chg": "+107.00", "legend": "NQ 4h", "msg": ""}
     nothing = {"bars": 0, "candles": 0, "last": "–", "chg": ""}

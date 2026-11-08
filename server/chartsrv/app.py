@@ -889,6 +889,42 @@ async def tpo_profile(request: Request, symbol: str, spec: str, rth: bool = Fals
     return await m.tpo.get(sym, minutes, s, rth, _until(until))
 
 
+@app.get("/api/older")
+async def older_bars(symbol: str, spec: str, before: int, count: int = 1000, rth: bool = False):
+    """Bars before `before` (a chart's first bar's open, epoch ms) for a chart scrolled or zoomed out past it: up to
+    `count`, built as the chart's own are (older.py). more: older ones are stored still; approx: some were built from
+    1-minute bars (volume, range and Renko bars where no trades are stored). Past the stored minutes, NinjaTrader is
+    asked for older ones (gapfill.want_older, add-on 20+): fetching, and the page asks again; why, when there are no
+    more: limit (NinjaTrader has none older), wait (it didn't answer: asked again in a few minutes) or stored."""
+    from .bars import parse_spec
+    from .older import FALLBACK, MAX_COUNT
+    m = M()
+    sym = symbol.upper()
+    if sym not in m.instruments:
+        raise HTTPException(404, f"unknown symbol {symbol}")
+    try:
+        sp = parse_spec(spec)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+    if not 1 <= count <= MAX_COUNT:
+        raise HTTPException(400, f"count: 1 to {MAX_COUNT}")
+    inst = m.instruments[sym]
+    rth = bool(rth and inst.rth)
+    d = await workers.run("chart", workers.build_older, m.store.path, sym, sp, inst.tick_size, inst.decimals, inst.rth,
+                          rth, inst.calendar, before, count, m.store.max_tick_rowid())
+    if not d["more"]:
+        d["why"] = "stored"
+        if sp.from_minutes or sp.kind in FALLBACK:   # (seconds and tick bars need trades: NinjaTrader sends minutes)
+            # as far back as the chart wants, a month at least: a bar's span (a volume bar's: a month) times the count
+            span = int(sp.size * 1000 * count * 1.5) if sp.kind == "time" else 0
+            got = m.gapfill.want_older(sym, span) if hasattr(m, "gapfill") else "off"
+            if got == "fetching":
+                d.update(more=True, fetching=True, why=None)
+            elif got in ("limit", "wait"):
+                d["why"] = got
+    return d
+
+
 def _until(until: int | None) -> int | None:
     """Bar replay's clock, a study as it stood then: None (live) from the present on."""
     return None if until is None or until >= now_ms() else max(until, 0)

@@ -171,6 +171,9 @@ def build_history(db_path, series: Series, symbol: str, spec: BarSpec, cutoff_ro
             _vwap_from_open(db_path, series, symbol, since)
     for tk in iter_ticks(db_path, symbol, since, cutoff_rowid):
         series.on_tick(tk)
+    if spec.kind == "time" and not spec.from_minutes:   # a 7s or 45s bar can begin before the window: only part of it
+        while series.bars and series.bars[0].t < since:
+            series.bars.popleft()
     series.end_bulk()
 
 
@@ -689,12 +692,14 @@ class Market:
             except Exception:   # they stay buffered for the store loop's next try; the feed carries on
                 self._write_failed("store flush failed")
 
-    def history_changed(self, sym: str):
+    def history_changed(self, sym: str, charts: bool = True):
         """Stored history of `sym` changed under the running server (a gap fill): open charts reload, the studies
-        built from it (AMT, TPO's daily bars, gap and study alerts) load again, and its settlement is worked out again."""
+        built from it (AMT, TPO's daily bars, gap and study alerts) load again, and its settlement is worked out again.
+        charts False: older history filled in (gapfill's older requests): the charts load it as they are scrolled back,
+        not again now."""
         if not any(s == sym for s, _ in self.dirty):   # no live minute waits to be written: the fill's may run past the
             self.m1_ticked.discard(sym)                  # last one (an outage), so what loads again splits at the current minute
-        for entry in list(self.by_symbol.get(sym, [])):
+        for entry in list(self.by_symbol.get(sym, []) if charts else []):
             for client, sid in list(entry.subs):
                 client.put({"type": "reload", "id": sid})
             self.by_symbol[sym].remove(entry)
@@ -1351,6 +1356,8 @@ class Market:
         (e.g. healthchecks.io) so a dead PC still gets noticed. Each session open gets the same
         stale_after_s grace as process start. Outside session hours the heartbeat always pings, and bar-close
         indicator alerts check the session's last bars (those the feed filled to the close)."""
+        if hasattr(self, "gapfill"):   # older history: the next month, or one NinjaTrader never answered dropped
+            self.gapfill.kick_older()
         now = now_ms()
         is_open = {sym: sessions.is_open(now, inst.calendar) for sym, inst in self.instruments.items()}
         limit = self.s.stale_after_s * 1000

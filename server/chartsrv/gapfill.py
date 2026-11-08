@@ -19,9 +19,18 @@ and when NinjaTrader's prices there don't match the stored ones (a roll before r
 another contract's and is dropped. A hole runs from its last stored trade
 to the next stored minute's open: that minute is left as stored (the add-on stamps live trades when it sends them,
 history with the exchange's time, so a cut inside it could count a trade twice). Charts and studies of the symbol
-reload once its holes are done."""
+reload once its holes are done.
+
+Older history (add-on 20+, GAP|...|older): the 1-minute bars from before anything stored, a month at a time, each
+contract's by NinjaTrader's roll dates. In the background, once a symbol's gap and holes are done, back to a year
+(CHART_HISTORY_PREFILL_DAYS); and at once for a chart scrolled back past its stored minutes (want_older, by
+/api/older), a few months at a time. One such request at a time for all symbols, after the others. A month that comes
+back empty is where the data provider's history ends: remembered (OLDER_LIMIT), asked again after a week. Charts
+don't reload for them (they load older bars as they are scrolled back); a symbol's studies reload once its year is
+in, if any of it is from the last STUDY_DAYS."""
 import logging
 import math
+import os
 import time
 
 from . import sessions
@@ -40,6 +49,23 @@ ASKED = "gapfill_holes_asked2"   # {symbol: [[from, to], ...]}: holes asked for 
                                  # data provider, not only NinjaTrader's own recordings, each is asked once more)
 ROLLED = "contract_rolled_at"    # {symbol: ms}: its last contract roll; no hole from before it
 PROBE_MS = 3 * 60_000            # a hole is asked from this much earlier: the stored prices there tell the contract apart
+DAY_MS = 86_400_000
+OLDER_ADDON = 20                 # the add-on version that answers GAP|...|older
+OLDER_SPAN_MS = 30 * DAY_MS      # older history asked a month at a time...
+OLDER_MAX_SPAN_MS = 180 * DAY_MS # ...or, for a chart scrolled back, as much as it wants, up to this
+OLDER_TIMEOUT_S = 360            # unanswered this long (the add-on waits 5 minutes for NinjaTrader): dropped, and the
+OLDER_RETRY_S = 600              # symbol asked again after OLDER_RETRY_S...
+OLDER_TRIES = 3                  # ...until this many in a row failed: then taken as where its history ends
+OLDER_LIMIT = "history_limit"    # {symbol: [ms, when]}: NinjaTrader had nothing before ms (asked again after a week)
+OLDER_LIMIT_DAYS = 7
+STUDY_DAYS = 400                 # older minutes this recent reload the symbol's studies (AMT, Daily SMA x4...) once
+STUDY_RELOAD_S = 300             # ...once its older requests are through, and at most this often (a chart scrolled back)
+
+
+def prefill_days() -> int:
+    """How far back older history is filled in the background: CHART_HISTORY_PREFILL_DAYS (365; 0 turns it off)."""
+    v = os.environ.get("CHART_HISTORY_PREFILL_DAYS", "").strip()
+    return max(0, min(int(v), 20 * 366)) if v.isdigit() else 365
 
 
 def filling(market, sym: str) -> bool:
@@ -74,6 +100,7 @@ class _Window:
         self.collect: dict | None = None           # the AMT's prior day (ask_value): price -> volume, nothing stored
         self.future = None
         self.bars = False                          # ...answered with 1-minute bars: no tick history
+        self.older = False                         # older history (GAP|...|older): 1-minute bars before anything stored
 
 
 def shut(ts: int, group: str | None) -> bool:
@@ -94,6 +121,13 @@ class GapFill:
         self.minutes_ok = False          # the add-on takes GAP|...|minutes (7+): what trades left out comes as minutes
         self.values: dict[str, list] = {}   # per symbol: RTH sessions the AMT wants from NinjaTrader's tick history
         self.contracts_ok = False        # the add-on answers a stretch across rolls from each contract in turn (8+)
+        self.older_ok = False            # the add-on answers GAP|...|older (20+)
+        self.older_busy: tuple[str, float] | None = None   # (symbol, monotonic time asked): one older request at a time
+        self.older_want: dict[str, int] = {}     # symbol -> span (ms): charts scrolled back past its stored minutes
+        self.older_wait: dict[str, float] = {}   # symbol -> monotonic time: not asked before (after an error or no answer)
+        self.older_failed: dict[str, int] = {}   # symbol -> older requests failed in a row
+        self.older_filled: set[str] = set()      # older minutes from the last STUDY_DAYS stored: its studies reload once
+        self.older_reloaded: dict[str, float] = {}   # symbol -> monotonic time its studies last reloaded for them
 
     def last_stored(self, sym: str) -> int | None:
         """End of the stored data: the last trade when trades reach the last 1-minute bar, else that bar's end
@@ -109,12 +143,15 @@ class GapFill:
             return t
         return b + 60_000 if b is not None else None
 
-    def requests(self, now: int, live: bool = False, minutes: bool = False, contracts: bool = False) -> list[str]:
+    def requests(self, now: int, live: bool = False, minutes: bool = False, contracts: bool = False,
+                 older: bool = False) -> list[str]:
         """GAP lines for every symbol whose stored data stops short of now, or else its first hole (called when the
         add-on says hello); not the ones a feed plugin supplies (it fills its own: open()). `live`: the add-on asks
-        up to its first live trade once its data connection is up, and answers holes (add-on 6+)."""
+        up to its first live trade once its data connection is up, and answers holes (add-on 6+). `older`: it answers
+        older history (20+): that goes after these (next_older)."""
         self.m.flush_for_read()
-        self.minutes_ok, self.contracts_ok = minutes, contracts
+        self.minutes_ok, self.contracts_ok, self.older_ok = minutes, contracts, older
+        self.older_busy = None
         self.fail_values()   # asked on the connection before: no answer comes now
         owned = getattr(self.m, "trade_owner", {})
         out = []
@@ -259,7 +296,9 @@ class GapFill:
         self.m.store.set_setting(ROLLED, {**got, sym: now})
         self.queue.pop(sym, None)
         w = self.windows.get(sym)
-        if w is not None and w.hole and not (w.probe or w.count):
+        if w is not None and w.older:
+            pass   # each contract's by NinjaTrader's roll dates, whatever is charted now
+        elif w is not None and w.hole and not (w.probe or w.count):
             w.discard = True
         elif w is not None and not w.hole and (not self.contracts_ok or sym in getattr(self.m, "trade_owner", {})):
             # (add-on 8+ fills each contract from its own; a feed plugin's history is the contract it is on now)
@@ -331,7 +370,7 @@ class GapFill:
 
     def tick(self, sym: str, ts: int, price: float, size: int):
         w = self.windows.get(sym)
-        if not w or w.discard or size <= 0:
+        if not w or w.discard or size <= 0 or w.older:   # older history comes as 1-minute bars only
             return
         if w.collect is not None:   # the AMT's: a trade on the minute is the minute it ends, as NinjaTrader's bars
             if w.start <= (ts - 1) // 60_000 * 60_000 < w.end:
@@ -390,6 +429,9 @@ class GapFill:
     def done(self, sym: str, kind: str, count: int, note: str):
         w = self.windows.pop(sym, None)
         if w is None:
+            return
+        if w.older:
+            self._older_done(sym, w, kind, count, note)
             return
         if w.collect is not None:
             got = w.collect if kind == "ticks" and w.collect and not w.bars else None
@@ -538,6 +580,160 @@ class GapFill:
             bars.append(Bar(t=first, o=so, h=max(sh, h), l=min(sl, lo), c=c, v=sv_ + v, bv=sbv, sv=ssv, n=sn + n))
         self.m.store.write([], [(sym, b) for b in bars])
         return len(bars)
+
+    # --- older history: from before anything stored ----------------------------------------------------------
+    def floor(self, sym: str) -> int | None:
+        """The first stored minute of `sym`."""
+        return self.m.store.db.execute("SELECT MIN(t) FROM bars_1m WHERE symbol=?", (sym,)).fetchone()[0]
+
+    def limit(self, sym: str) -> int | None:
+        """Where NinjaTrader's history of `sym` was found to end (nothing before it), unless that was a week ago."""
+        got = self.m.store.get_setting(OLDER_LIMIT, {}) or {}
+        v = got.get(sym) if isinstance(got, dict) else None
+        if not (isinstance(v, list) and len(v) == 2):
+            return None
+        return int(v[0]) if time.time() * 1000 - int(v[1]) < OLDER_LIMIT_DAYS * DAY_MS else None
+
+    def _set_limit(self, sym: str, ms: int):
+        got = self.m.store.get_setting(OLDER_LIMIT, {}) or {}
+        got = got if isinstance(got, dict) else {}
+        self.m.store.set_setting(OLDER_LIMIT, {**got, sym: [int(ms), int(time.time() * 1000)]})
+
+    def _ours(self, sym: str) -> bool:
+        return sym in self.m.instruments and sym not in getattr(self.m, "trade_owner", {})
+
+    def _prefill(self, sym: str, floor: int | None = None) -> bool:
+        """Whether `sym`'s stored minutes still stop short of the year (prefill_days) filled in the background."""
+        days = prefill_days()
+        floor = self.floor(sym) if floor is None else floor
+        if not days or floor is None or floor <= time.time() * 1000 - days * DAY_MS:
+            return False
+        lim = self.limit(sym)
+        return lim is None or floor > lim
+
+    def want_older(self, sym: str, span: int) -> str:
+        """A chart scrolled back past `sym`'s stored minutes wants `span` ms more: 'fetching' (asked of NinjaTrader now,
+        or after what is being asked), 'limit' (NinjaTrader has none older), 'wait' (it didn't answer: asked again in a
+        few minutes) or 'off' (no add-on that answers, another feed's symbol, nothing stored)."""
+        if not self.older_ok or not self._ours(sym):
+            return "off"
+        floor = self.floor(sym)
+        if floor is None:
+            return "off"   # nothing stored: the gap fill comes first
+        lim = self.limit(sym)
+        if lim is not None and floor <= lim:
+            return "limit"
+        if time.monotonic() < self.older_wait.get(sym, 0):
+            return "wait"
+        self.older_want[sym] = max(self.older_want.get(sym, 0), int(span))
+        self.kick_older()
+        return "fetching"
+
+    def kick_older(self):
+        """The next older request, sent now if none is out (also the watchdog's: one that went unanswered is dropped,
+        studies due a reload reload)."""
+        for sym in list(self.older_filled):
+            self._older_studies(sym)
+        line = self.next_older()
+        if line is not None:
+            feed = next((f for f in getattr(self.m, "feed_objs", []) if getattr(f, "name", "") == "ninjatrader"
+                         and hasattr(f, "older_ok") and f.older_ok()), None)
+            if feed is None or not feed.send(line):
+                w = self.windows.get(self.older_busy[0]) if self.older_busy else None
+                if w is not None and w.older:
+                    del self.windows[self.older_busy[0]]
+                self.older_busy = None
+
+    def next_older(self) -> str | None:
+        """The GAP line for the next older request, its window opened; None while one is out (until it times out),
+        when every symbol is busy with its gap or holes, or none wants any. Charts scrolled back first, then the
+        background year, the symbols charted last first."""
+        if not self.older_ok:
+            return None
+        if self.older_busy is not None:
+            sym, t0 = self.older_busy
+            w = self.windows.get(sym)
+            if w is not None and w.older and time.monotonic() - t0 < OLDER_TIMEOUT_S:
+                return None
+            if w is not None and w.older:   # no answer: dropped, asked again later
+                del self.windows[sym]
+                self.status[sym] = {**self.status.get(sym, {}), "state": "dropped", "note": "no answer from NinjaTrader"}
+                log.warning("older history %s: no answer from NinjaTrader", sym)
+                self._older_failed(sym, w)
+            self.older_busy = None
+        recent = [c[0] for c in getattr(self.m, "recent", {}).get("charts", []) if c]
+        order = list(self.older_want) + [s for s in dict.fromkeys(recent + list(self.m.instruments)) if s not in self.older_want]
+        now = time.monotonic()
+        for sym in order:
+            if not self._ours(sym):
+                self.older_want.pop(sym, None)
+                continue
+            if sym in self.windows or self.queue.get(sym) or self.values.get(sym) or now < self.older_wait.get(sym, 0):
+                continue
+            floor = self.floor(sym)
+            if floor is None:
+                continue
+            lim = self.limit(sym)
+            if lim is not None and floor <= lim:
+                self.older_want.pop(sym, None)
+                continue
+            wanted, span = sym in self.older_want, self.older_want.pop(sym, 0)
+            if not wanted and not self._prefill(sym, floor):
+                continue
+            span = max(OLDER_SPAN_MS, min(OLDER_MAX_SPAN_MS, span))
+            end = floor // 60_000 * 60_000
+            w = self.windows[sym] = _Window(end - span, end)
+            w.older = True
+            self.status[sym] = {"from": end - span, "to": end, "state": "asked", "older": True}
+            self.older_busy = (sym, now)
+            return f"GAP|{sym}|{end - span}|{end}|older"
+        return None
+
+    def _older_done(self, sym: str, w: _Window, kind: str, count: int, note: str):
+        if self.older_busy is not None and self.older_busy[0] == sym:
+            self.older_busy = None
+        self._write_rows(sym, w)
+        if kind in ("error", "none"):
+            state = "limit" if self._older_failed(sym, w) else "error"
+        elif not w.count:   # nothing before its end: where the data provider's history ends
+            self._set_limit(sym, w.end)
+            state = "limit"
+        else:
+            state = "done"
+            self.older_failed.pop(sym, None)
+            if w.end > time.time() * 1000 - STUDY_DAYS * DAY_MS:
+                self.older_filled.add(sym)
+        took = time.monotonic() - w.t0
+        self.status[sym] = {"from": w.start, "to": w.end, "state": state, "kind": kind, "sent": count, "stored": w.count,
+                            "note": note, "seconds": round(took, 1), "older": True}
+        log.info("older history %s: %s, %d sent, %d stored (%s) in %.1fs", sym, state, count, w.count, note, took)
+        if hasattr(self.m, "broadcast"):   # a chart waiting at its first bar asks again now
+            self.m.broadcast({"type": "older", "symbol": sym})
+        self._older_studies(sym)
+
+    def _older_failed(self, sym: str, w: _Window) -> bool:
+        """An older request failed (an error, no answer): asked again in OLDER_RETRY_S, or, the OLDER_TRIES-th in a
+        row, taken as where NinjaTrader's history ends (True; checked again in a week, as an empty month)."""
+        n = self.older_failed[sym] = self.older_failed.get(sym, 0) + 1
+        if n >= OLDER_TRIES:
+            self.older_failed.pop(sym, None)
+            self._set_limit(sym, w.end)
+            log.warning("older history %s: %d requests in a row failed; none asked before %s for a week", sym, n, w.end)
+            return True
+        self.older_wait[sym] = time.monotonic() + OLDER_RETRY_S
+        return False
+
+    def _older_studies(self, sym: str):
+        """`sym`'s studies built from its last months (AMT, Daily SMA x4, TPO's days...) load again with the older
+        minutes, once none is being asked for it (its year is in, a chart's scrolling done), at most every
+        STUDY_RELOAD_S; not its charts."""
+        if sym not in self.older_filled or sym in self.older_want or self._prefill(sym) \
+                or (self.older_busy is not None and self.older_busy[0] == sym) \
+                or time.monotonic() - self.older_reloaded.get(sym, -math.inf) < STUDY_RELOAD_S:
+            return
+        self.older_filled.discard(sym)
+        self.older_reloaded[sym] = time.monotonic()
+        self.m.history_changed(sym, charts=False)
 
     def health(self) -> dict:
         return self.status

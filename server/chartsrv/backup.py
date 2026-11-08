@@ -25,7 +25,7 @@ from datetime import datetime
 from pathlib import Path
 
 from . import setup
-from .gapfill import ASKED, ROLLED
+from .gapfill import ASKED, OLDER_LIMIT, ROLLED
 from .store import Store, connect
 
 log = logging.getLogger(__name__)
@@ -36,8 +36,9 @@ NAME_RE = re.compile(r"^tatanka-\d{8}-\d{6}(-before-restore)?\.db$")
 MARKET = {"ticks", "bars_1m", "symbols", "fred_series", "eia_series", "cot_series", "vp_cache"}   # refilled by the server itself
 # settings about the market data in this database, which a restore leaves: the simulator left (its trades deleted), the
 # setup guide, the contracts it is on (and the old names noted to rename once: market.OLD_NAMES), their last rolls and
-# the holes asked for; and this PC's own tailscale serve names. Not the backup's (but see restore()'s on_sim).
-KEPT = (setup.LEAVE_SIM, setup.SETTING, "contracts", "contracts_old_names", ROLLED, ASKED, setup.TS_NAMES)
+# the holes asked for, where NinjaTrader's older history ends; and this PC's own tailscale serve names. Not the backup's
+# (but see restore()'s on_sim).
+KEPT = (setup.LEAVE_SIM, setup.SETTING, "contracts", "contracts_old_names", ROLLED, ASKED, OLDER_LIMIT, setup.TS_NAMES)
 
 
 def backup_dir(settings) -> Path:

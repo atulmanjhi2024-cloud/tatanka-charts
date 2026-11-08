@@ -35,13 +35,15 @@
 //   P|<account>|<utc epoch ms>               on each connect, after the account's open positions (at the same time):
 //                                            its other contracts are flat. With these the journal puts right a fill the
 //                                            server never got (a position opened before the add-on was installed)
-// From the server: GAP|<sym>|<from utc ms>|<to utc ms>[|live|minutes], sent on connect where its stored data stops short (and
+// From the server: GAP|<sym>|<from utc ms>|<to utc ms>[|live|minutes|older], sent on connect where its stored data stops short (and
 // for holes inside it, one at a time per symbol); the add-on fetches that stretch from NinjaTrader (trades, else
 // 1-minute bars) and sends it back, once NinjaTrader's data connection is up (at NinjaTrader's start the add-on is
 // running before it). live: up to the add-on's first live trade then. minutes: 1-minute bars, for a stretch the
 // trades didn't cover (the provider keeps no tick history that far back). A stretch across contract rolls comes from
 // each contract in turn, switching at NinjaTrader's roll dates, from the one the server charted last (R line) to the
-// one forwarded now.
+// one forwarded now. older (20+): history from before anything the server has stored (charts scrolled back, the last
+// year filled in the background), as 1-minute bars, each contract's by NinjaTrader's roll dates however old, none for
+// a time before the first roll date NinjaTrader knows; answered with Y lines and Z as the others.
 // BYE|<reason>: the server has another NinjaTrader's add-on connected (two NinjaTrader instances): this one hangs up,
 // drops what it queued meanwhile (the other sent those trades) and tries again in 30 s; once let in, the gap fill
 // covers the stretch from where the other stopped.
@@ -80,7 +82,7 @@ namespace NinjaTrader.NinjaScript.AddOns
 		private const string Token    = "";       // must equal CHART_NT_TOKEN if the server sets one
 		private const int    MaxQueue = 200000;   // lines buffered while the server is down; the oldest are dropped
 		private const long   TickHistoryMaxMs = 3L * 86400000;   // longer gaps come as 1-minute bars
-		private const int    Version  = 19;       // raised with each change; the server's ADDON_VERSION
+		private const int    Version  = 20;       // raised with each change; the server's ADDON_VERSION
 		private const long   QuoteLiveMs = 60000;   // a symbol's Q lines stop once its market data is silent this long
 		private const long   ReplayMs = 20 * 60000; // a trade older than this when it comes is NinjaTrader's replay of its last
 		private const int    ReplayRun = 3;         // ...unless more come in a row, each within ReplayRunMs of the one before:
@@ -470,8 +472,9 @@ namespace NinjaTrader.NinjaScript.AddOns
 						{
 							string sym = p[1];
 							long from = long.Parse(p[2], Inv), to = long.Parse(p[3], Inv);
-							bool live = p.Length == 5 && p[4] == "live", minutes = p.Length == 5 && p[4] == "minutes";
-							new Thread(() => History(sym, from, to, live, !minutes, gen)) { IsBackground = true, Name = "TatankaChartFeed history" }.Start();
+							bool live = p.Length == 5 && p[4] == "live", older = p.Length == 5 && p[4] == "older";
+							bool minutes = older || (p.Length == 5 && p[4] == "minutes");
+							new Thread(() => History(sym, from, to, live, !minutes, gen, older)) { IsBackground = true, Name = "TatankaChartFeed history" }.Start();
 						}
 						else if (p.Length == 2 && p[0] == "I")
 							SetCharts(p[1].Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries));
@@ -720,7 +723,8 @@ namespace NinjaTrader.NinjaScript.AddOns
 
 		// One GAP answered, on its own thread: [fromMs, toMs] of each contract in turn (Segments), as trades, or as 1-minute
 		// bars when the stretch is long, the provider keeps no tick history, or the server asks for minutes; then Z.
-		private void History(string sym, long fromMs, long toMs, bool live, bool ticks, int gen)
+		// older: from before the server's stored data, each contract by NinjaTrader's roll dates alone.
+		private void History(string sym, long fromMs, long toMs, bool live, bool ticks, int gen, bool older = false)
 		{
 			try
 			{
@@ -742,7 +746,12 @@ namespace NinjaTrader.NinjaScript.AddOns
 					return;
 				}
 				if (ticks && toMs - fromMs > TickHistoryMaxMs) ticks = false;
-				List<KeyValuePair<Instrument, long>> segs = Segments(charted, current, fromMs, toMs);
+				List<KeyValuePair<Instrument, long>> segs = Segments(older ? null : charted, current, fromMs, toMs, older);
+				if (segs.Count == 0)
+				{
+					EnqueueHistory(gen, "Z|" + sym + "|minutes|0|ok");   // before the first roll date NinjaTrader knows
+					return;
+				}
 				while (true)
 				{
 					int sent = 0;
@@ -781,8 +790,9 @@ namespace NinjaTrader.NinjaScript.AddOns
 
 		// The contract charted at each time of [fromMs, toMs], oldest first, each with the time it starts: NinjaTrader's
 		// front month by its roll dates (each from the 17:00 CT open of its roll date's session), never older than the
-		// one the server charted last (null: unknown) nor newer than the one forwarded now.
-		private static List<KeyValuePair<Instrument, long>> Segments(Instrument charted, Instrument current, long fromMs, long toMs)
+		// one the server charted last (null: unknown) nor newer than the one forwarded now. older: none for a time before
+		// the first roll date it knows (an empty list when all of it is), rather than a guess.
+		private static List<KeyValuePair<Instrument, long>> Segments(Instrument charted, Instrument current, long fromMs, long toMs, bool older = false)
 		{
 			int cur = Months(current), oldest = charted != null ? Months(charted) : int.MinValue;
 			List<KeyValuePair<int, long>> sched = new List<KeyValuePair<int, long>>();   // contract month, its start
@@ -804,6 +814,7 @@ namespace NinjaTrader.NinjaScript.AddOns
 				int m = int.MinValue;
 				foreach (KeyValuePair<int, long> e in sched)
 					if (e.Value <= t) m = e.Key;
+				if (m == int.MinValue && older) continue;   // before any roll it knows: no contract to ask
 				if (m == int.MinValue) m = oldest != int.MinValue ? oldest : cur;   // before any roll it knows
 				m = Math.Min(Math.Max(m, oldest), cur);
 				if (m == had) continue;
@@ -813,7 +824,7 @@ namespace NinjaTrader.NinjaScript.AddOns
 				segs.Add(new KeyValuePair<Instrument, long>(i, t));
 				had = m;
 			}
-			if (segs.Count == 0) segs.Add(new KeyValuePair<Instrument, long>(current, fromMs));
+			if (segs.Count == 0 && !older) segs.Add(new KeyValuePair<Instrument, long>(current, fromMs));
 			return segs;
 		}
 

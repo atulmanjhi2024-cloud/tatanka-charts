@@ -9,18 +9,33 @@ months (1M, 3M, 6M, 12M), ticks (trades per bar), volume (contracts per bar), ra
 (brick size in ticks). **Custom** makes any size (e.g. 15 seconds, 7 minutes, 2 days, 750 ticks); it is kept in a
 Custom group (right-click one, or long-press it on a phone, to remove it). Star a timeframe to pin it to the toolbar; favorites are remembered per device.
 Short codes: `15s` `5m` `4h` `1D` `2D` `1W` `3M` `2000t` `5000v` `16r`. Seconds bars are built from stored trades, so
-they reach back about as far as the chart holds (up to the previous session; their VWAP still counts from the session's
-open). Several days, weeks or months group
+they reach back as far as those do (their VWAP still counts from the session's open). Several days, weeks or months group
 whole sessions from a fixed start, so a 2D bar is the same two sessions on every device. A day is one 17:00-16:00 CT session, a week the sessions of one
 Monday-Friday trade week, a month those whose trade date falls in it; they are built from stored 1-minute bars
-(1D: 400 days back, 1W: 5 years, 1M: 20 years), so they reach as far back as your backfill or import does. All times are CT. Time bars align to the 17:00 CT
+(1D opens with 400 days, 1W with 5 years, 1M with 20 years), so they reach as far back as your backfill or import does. All times are CT. Time bars align to the 17:00 CT
 Globex open; tick, volume and range bars restart at each session open. Range bars close at the range limit
 and the next bar opens one tick beyond; gaps are filled with zero-volume bars.
+
+**Older history**, as TradingView's: a chart opens with its last 3000 bars (`CHART_MAX_BARS`); scroll or zoom out to
+its first bar and the bars before it load, on and on, as far back as the stored history goes (up to 60,000 bars on a
+chart; a longer timeframe reaches further). **Go to date** and a journal trade load back to their date too. They are
+built as the chart's own bars: minute, hour, day, week and month bars from the stored 1-minute bars, exactly; seconds
+and tick bars from stored trades, stopping where those do; volume, range and Renko bars from stored trades, and for a
+session without its trades stored (history filled in from NinjaTrader is 1-minute bars), from its 1-minute bars
+(each minute's open, high, low and close as prints of its volume: close to what the trades would make, not the same;
+a note says so once). Past the stored minutes, the NinjaTrader add-on (20+) is asked for older ones ("loading older
+bars from NinjaTrader…"), so a minute-or-longer, volume, range or Renko chart keeps going as far back as your data
+provider's history does, and each future's last year is filled in the background once NinjaTrader connects
+([NINJATRADER.md](NINJATRADER.md#the-ninjatrader-feed), Older history). The indicators, VWAP, HTF EMA, Daily SMA and your fills run over the older bars too; the
+volume profiles, TPO, Gap Analysis and the AMT Toolkit keep their own history settings. "All the stored history is
+loaded" says when there is no more (or "that's as far back as NinjaTrader's history goes"). API: `GET /api/older?symbol=ES&spec=30m&before=<first bar's ms>&count=1000&rth=false`
+(`bars`, oldest first; `more`; `approx`: some built from 1-minute bars; `fetching`: NinjaTrader is asked, ask again;
+`why`, when there are no more: `stored`, `limit` or `wait`).
 
 
 **Renko** (`8k` = 8-tick bricks), as NinjaTrader's: bricks with no wicks, another one in the trend's direction a
 brick past the last close, a reversal two bricks away (a brick past the last one's open); the last bar is the brick
-forming. Built from stored trades, so history reaches back as far as the stored ticks (the Databento import).
+forming. Built from stored trades (the Databento import), and further back from 1-minute bars (Older history below).
 
 **ETH / RTH** (the button by the timeframe): all Globex hours, or the instrument's regular hours only (ES/NQ 08:30-15:00,
 CL 08:00-13:30, GC 07:20-12:30 CT), with time bars counted from the RTH open, as a NinjaTrader chart on an RTH
@@ -95,8 +110,8 @@ Tabs are remembered per chart and saved in the workspace.
   **Countdown on the chart** in the Calendar tab turns it off.
 - **Go to date** (**Alt+G**, the calendar button among − + ‹ › ⟲, or the chart's right-click / long-press menu):
   a date and time on the chosen time zone's clock (on D/W/M charts a trade date, as their axis shows them); the chart
-  centres there at the zoom you have, with the crosshair on that bar. Only within the bars loaded: a longer timeframe
-  goes further back.
+  centres there at the zoom you have, with the crosshair on that bar. Before the bars loaded, the older ones load back
+  to it first (Older history above), as far as the stored history goes.
 - **Compare** (**⊕ Compare** in the header, right of + Alert; ⊕ on a phone; or the chart's right-click / long-press menu > **Compare
   symbol…**): the symbol search opens; pick up to three other symbols (ES, RTY, YM, AAPL, DXY, …) and each becomes a
   colored % line over the chart, as TradingView's Compare. The price scale switches to %, so
@@ -183,7 +198,7 @@ Tabs are remembered per chart and saved in the workspace.
   edits it). The app never zooms as a page (a tap in a number box used to zoom an iPhone's page, which then took
   drags on the chart for itself).
 - **On a phone**, the AMT table starts folded to its title, a small tab in the chart's top-right corner beside the
-  legend (**Tatanka AMT v1.1.0 ▾**); tap it and the rows drop down from that corner (under the legend only when the
+  legend (**Tatanka AMT v1.2.2 ▾**); tap it and the rows drop down from that corner (under the legend only when the
   legend is too wide, e.g. the studies list open), tap again to fold. Settings and other
   dialogs fill the screen below the status bar, so their ✕ and buttons can always be reached.
 - **On a phone**, as TradingView's app: one page at a time, with a bar at the bottom: **Chart**, **Watchlist**,
