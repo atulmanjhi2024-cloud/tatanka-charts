@@ -31,7 +31,7 @@ clears and turns off one that isn't a main connection. A feed added with **+** s
 | EIA | weekly petroleum and natural gas data | free key from eia.gov/opendata |
 | App notifications, Discord, ntfy, Heartbeat | alert delivery (see [Alerts](ALERTS.md)) | |
 
-**Branding** (the last card) sets the app's name (header, sign-in, browser tab, Discord chart posts: "<name> Charts")
+**Branding** (App, above Updates) sets the app's name (header, sign-in, browser tab, Discord chart posts: "<name> Charts")
 and its logo (a PNG, JPEG or WebP up to 200 KB; about 28 px high in the header; chart pictures carry it too), and
 whether chart pictures say "Powered by Tatanka Charts" (on by default). Tatanka's by default; **Defaults** puts those
 back. It applies on every device at once and is in the backups.

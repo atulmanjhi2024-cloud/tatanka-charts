@@ -24,11 +24,11 @@ Setting it up:
    add-on** on Connections > NinjaTrader, which has the server's Token in it).
 3. In NinjaTrader, connected to your data feed: New > NinjaScript Editor, press F5. The bottom of the editor must
    show no errors. It starts right away and with NinjaTrader from then on.
-4. New > NinjaScript Output should show `TatankaChartFeed: forwarding ES DEC26` (one line per market) and
+4. New > NinjaScript Output should show `TatankaChartFeed: forwarding ES 12-26` (one line per market) and
    `TatankaChartFeed: connected to 127.0.0.1:8801`.
 5. Check http://127.0.0.1:8800/api/health: `feed_status.ninjatrader.connected` is true and `ticks` climbs while the
    market trades; the chart's last price matches NinjaTrader's.
-6. History: the add-on fills the last 90 days by itself (below), the year before that in the background, and anything
+6. History: the add-on fills the last 90 days by itself (below), the rest of the last year in the background, and anything
    older as a chart is scrolled back (add-on 20, Older history below), as far as your data provider's history goes.
    A backfill or a Databento import ([DATA.md](DATA.md)) is for what it doesn't have.
 
@@ -70,7 +70,7 @@ History stamped while the market is shut (the 16:00 break, a weekend, a holiday)
 history has a bar after the close holding the session's whole volume at the settlement price, which would put a day's
 volume in one minute on every chart and volume profile. Such bars stored before this was in are taken out once, at
 the next start.
-NinjaScript Output shows `filling ES DEC26 ... from NinjaTrader's trades` and `sent N trades of ES history`;
+NinjaScript Output shows `filling ES 12-26 ... from NinjaTrader's trades` and `sent N trades of ES history`;
 `/api/health` shows `gap_fill` per symbol. It reaches back 90 days (a 2-month absence comes back whole), and a
 future with nothing stored yet (one just added in Instruments) gets its last 90 days, as 1-minute bars. A stretch
 across contract rolls comes from each contract in turn, switching at NinjaTrader's roll dates (Tools > Instruments >

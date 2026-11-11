@@ -346,7 +346,7 @@ whole bar's room as on the chart (CL's 13:00 1h bar at a 13:30 halt); bars that 
 
 ## Bar replay
 
-**⏪ Replay**, then tap the bar to start from, or pick a date and time (CT) and press **Go**. Everything after that
+**⏪ Replay**, then tap the bar to start from, or pick a date and time (the chart's time zone) and press **Go**. Everything after that
 bar disappears; **▶** plays (½ to 10 bars a second), **⏭** or **Shift+→** steps one bar, **Space** plays or pauses,
 **Jump** picks a new start, **✕** goes back to live.
 

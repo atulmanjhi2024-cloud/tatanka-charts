@@ -31,7 +31,7 @@ TradingView:
   - **Trigger**: Only once (it stops after firing) or Every time (price alerts at most once a minute, indicator
     alerts at most once a bar).
   - **Expiration**: **Open-ended** (the default: it stays armed until you delete it) or **Until…** a date and time
-    (Chicago) when it switches itself off. **Message** is added to the notification.
+    (the chart's time zone) when it switches itself off. **Message** is added to the notification.
 - **On the chart**: each active price alert is a dashed line with a 🔔 label and an axis tag (a channel shows both
   edges, shaded). Drag a line to move the alert (it re-arms); click it to edit.
 - **Sound** (bottom of the Alerts tab, this device): a chime here when an alert fires: two notes for price alerts

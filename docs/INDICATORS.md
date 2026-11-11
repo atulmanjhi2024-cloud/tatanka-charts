@@ -154,7 +154,7 @@ engines and compares every value.
 
 ## Tatanka TPO Profile
 
-Studies ▾ → **Tatanka TPO Profile**. A port of the NinjaTrader TPO Profile v1.0.0 from
+Studies ▾ → **TPO Profile**. A port of the NinjaTrader TPO Profile v1.0.0 from
 tatankatrading/tatanka-indicators (MPL 2.0). Letters for each 30-minute block of the session, coloured from
 the open (blue) to the close (pink), drawn one bar apart from the session's first bar as on NinjaTrader; the
 last 3 days get letters, the 15 before them a grey outline. POC in yellow, value area optional.
@@ -218,7 +218,7 @@ session times) as raw double bits.
 
 ## Tatanka Gap Analysis
 
-Studies ▾ → **Tatanka Gap Analysis**. A port of the NinjaTrader Gap Analysis v1.0.0 from
+Studies ▾ → **Gap Analysis**. A port of the NinjaTrader Gap Analysis v1.0.0 from
 tatankatrading/tatanka-indicators (MPL 2.0). A gap is the RTH open against the last RTH bar's close the day
 before (the chart's close, not the exchange settlement). Unfilled gaps extend right and shrink as price
 trades into them; the table shows the latest gap, its fill, bars elapsed and the consecutive-gap count.
