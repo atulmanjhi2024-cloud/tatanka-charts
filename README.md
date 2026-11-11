@@ -84,6 +84,12 @@ NinjaTrader card in Connections while the simulator runs.
 PC itself may use the app: a phone through Tailscale gets "Set a password on the PC first".
 `CHART_REMOTE_NEEDS_PASSWORD=0` in `.env` lets other devices in without one (Tailscale is then the only lock).
 
+**On your phone, or as an app on the PC.** It installs from the browser as an app with its own icon, window and
+notifications (no App Store). In short: Tailscale on the PC and the phone, signed into the same account; once on the
+PC, `tailscale serve --bg 8800`; a password set; then open the https address it printed and install it: iPhone,
+Safari > Share > **Add to Home Screen**; Android, Chrome > ⋮ > **Install app**; Windows or Mac, Edge > ⋯ > **Apps >
+Install this site as an app** (or Chrome's install icon). Step by step: [Phone and PC app](docs/PHONE.md).
+
 ## Updating
 
 On Windows, double-click **`update.cmd`** in the `tatanka-charts` folder, or run it there (Command Prompt: `update.cmd`;
@@ -118,7 +124,7 @@ What happens by itself after that, or whenever something changes:
 
 | | |
 |---|---|
-| [Phone and PC app](docs/PHONE.md) | the app on iPhone, Android and Windows over Tailscale; login |
+| [Phone and PC app](docs/PHONE.md) | install it as an app on iPhone, Android, Windows or Mac (Edge, Chrome) over Tailscale; login |
 | [NinjaTrader](docs/NINJATRADER.md) | the add-on: install, gap fill, rollover |
 | [Data feeds](docs/FEEDS.md) | more brokers and data vendors, your own program, writing a feed plugin |
 | [Connections](docs/CONNECTIONS.md) | every feed, key and alert channel; instruments; backups |

@@ -2,39 +2,67 @@
 
 The app on an iPhone, Android phone or PC over Tailscale, and the login that keeps it yours.
 
-## iPhone and Windows app (Tailscale)
+## Install it as an app: iPhone, Android, Windows, Mac (Tailscale)
 
 The app installs from the browser as a real app: its own icon, its own window with no browser bars, and
 notifications. No App Store, no Mac, no developer account. It is the same app on every device; updates arrive on
 the next open.
 
-The container listens on 127.0.0.1 only. Publish it to your tailnet with HTTPS, which the installed app needs
-(service workers and notifications only run on HTTPS). Once, on the PC:
+### 1. Once: Tailscale and the address
 
-```
-tailscale serve --bg 8800
-```
+Tailscale is a free private network between your own devices: the phone reaches the PC from anywhere (home Wi-Fi or
+mobile data), and nothing is open to the internet. The installed app needs an https:// address (service workers and
+notifications only run on HTTPS); Tailscale gives it one.
 
-Nothing is exposed to the public internet. Do not use `tailscale funnel`.
+1. On the PC that runs Tatanka Charts: install Tailscale (tailscale.com/download) and sign in.
+2. On each phone or other PC: install the Tailscale app (App Store, Google Play, or tailscale.com/download) and sign
+   in with the **same account**. Leave it connected.
+3. On the PC, once (Command Prompt, PowerShell or Terminal):
 
-**iPhone** (iOS 16.4 or later, Tailscale app on and connected):
+   ```
+   tailscale serve --bg 8800
+   ```
 
-1. Open Safari, go to `https://<pc-name>.<tailnet>.ts.net` (the address `tailscale serve` printed).
-2. Tap Share (the square with the arrow), then **Add to Home Screen**, then **Add**.
+   It prints the app's address, `https://<pc-name>.<tailnet>.ts.net`. If it says HTTPS isn't enabled for your
+   tailnet, open the link it prints (Tailscale's admin console > DNS: **MagicDNS** and **HTTPS Certificates** on), then
+   run it again. `tailscale serve status` prints the address again later. The container listens on 127.0.0.1 only;
+   this publishes it to your own devices, nothing else. Do not use `tailscale funnel` (that is the public internet).
+4. Set a password on the PC first (the setup guide, or Connections > **Login**). Until there is one, only the PC
+   itself can use the app: a phone gets "Set a password on the PC first".
+
+### 2. Install the app
+
+**iPhone** (iOS 16.4 or later, Tailscale on and connected):
+
+1. Open **Safari**, go to `https://<pc-name>.<tailnet>.ts.net`, and sign in with the password.
+2. Tap Share (the square with the arrow), then **Add to Home Screen**, then **Add**. (Safari is the way to use: other
+   iPhone browsers have Add to Home Screen in their Share menu too, but the app and its notifications are Safari's.)
 3. Open **Tatanka** from the Home Screen icon (not from Safari).
 4. Tap the dot at the top right (Connections), scroll to **App notifications**, tap **Turn on for this device**, then
    **Allow**. **Test** sends one.
 
-**Windows** (Edge or Chrome):
+**Android** (Tailscale on and connected):
 
-1. Open `https://<pc-name>.<tailnet>.ts.net`, or `http://127.0.0.1:8800` on the PC itself.
-2. Edge: **⋯ > Apps > Install this site as an app**. Chrome: the install icon at the right of the address bar
-   (or **⋮ > Cast, save and share > Install page as app**).
-3. It opens in its own window and goes on the Start menu and taskbar. Right-click the taskbar icon > Pin.
-4. For Windows notifications: in the app, the dot at the top right > **App notifications > Turn on for this device**.
+1. Open **Chrome**, go to `https://<pc-name>.<tailnet>.ts.net`, and sign in with the password.
+2. Chrome's menu (**⋮**, top right) > **Install app** (on some phones: **Add to Home screen**, then **Install**).
+   Edge: its menu (**⋯**, bottom) > **Add to phone**. Samsung Internet: menu > **Add page to** > **Home screen**.
+3. Open **Tatanka** from its icon (it is in the app drawer too).
+4. For notifications, the same as on an iPhone: the dot at the top right > **App notifications > Turn on for this
+   device**, then **Allow**.
+
+**Windows or Mac** (Edge or Chrome):
+
+1. Open `https://<pc-name>.<tailnet>.ts.net` (another PC: Tailscale on and connected), or `http://127.0.0.1:8800` on
+   the PC that runs it.
+2. Edge: **⋯ > Apps > Install this site as an app** (on some versions **⋯ > Apps > Install Tatanka**). Chrome: the
+   install icon at the right of the address bar (or **⋮ > Cast, save and share > Install page as app**).
+3. It opens in its own window. Windows: it goes on the Start menu; right-click its taskbar icon > **Pin to taskbar**.
+   Mac: it goes in Applications (Chrome: Chrome Apps); right-click its Dock icon > **Options > Keep in Dock**.
+4. For notifications: in the app, the dot at the top right > **App notifications > Turn on for this device**.
    Notifications need the https:// address; Edge or Chrome must be allowed to run in the background (the default).
 
-Android: Chrome > ⋮ > **Install app**, then the same step 4.
+To remove it: like any app (iPhone: hold the icon > Remove App; Android: hold the icon > Uninstall; Windows: Start >
+right-click > Uninstall; Edge: **⋯ > Apps > Manage apps**).
 
 ### Stuck on "Loading the chart…" (red dot top right)
 
